@@ -1,3 +1,9 @@
+/*
+ * --- Jaspr Prototype REPL ---
+ * Adam R. Nelson <adam@nels.onl>
+ */
+
+const parse = require('./parse')
 const Promise = require('bluebird')
 const _ = require('lodash')
 
@@ -36,8 +42,13 @@ const magicFns = {
   async divide(a, b) { return a / b },
   async modulus(a, b) { return a % b },
   async negate(a) { return -a },
-  async toString(a) { return "" + a },
-  async stringJoin(a, b) { return "" + a + b },
+  async toString(a) { return jasprToString({bareString: true})(a) },
+  async toJson(a) { return jasprToString({json: true})(a) },
+  async fromJson(a) { return JSON.parse(a) },
+  async stringJoin(a, b) {
+    return (await jasprToString({bareString: true})(a)) +
+      (await jasprToString({bareString: true})(b))
+  },
   async stringLength(str) { return str.length },
   async stringSlice(str, start, end) { return str.substring(start, end) },
   async arrayLength(arr) { return arr.length },
@@ -162,7 +173,7 @@ async function jasprEval(scope, codePromise) {
     if (code.hasOwnProperty(scopeKey)) {
       throw {err: "cannot eval a closure", closure: code}
     }
-    return _.mapValues(code, x => jasprEval(scope, x))
+    return Promise.props(_.mapValues(code, x => jasprEval(scope, x)))
   }
   throw {err: "cannot eval: " + code}
 }
@@ -203,23 +214,29 @@ async function evalScope(scope, parentScope={}) {
   return s
 }
 
-async function jasprToString(val) {
+const jasprToString = options => async val => {
   if (_.isPlainObject(val)) {
     if (val.hasOwnProperty(scopeKey)) {
-      return "(closure)"
+      if (options.json)
+        throw {"err": "no JSON representation", "value": val}
+      else return "(closure)"
     } else {
-      const obj = await Promise.props(_.mapValues(await Promise.props(val), jasprToString))
+      const obj = await Promise.props(_.mapValues(await Promise.props(val), jasprToString(options)))
       return "{" + _(obj).toPairs().map(([k, v]) => JSON.stringify(k) + ": " + v).join(", ") + "}"
     }
   } else if (_.isArray(val)) {
-    return "[" + _.join(await Promise.map(val, jasprToString), ", ") + "]"
+    return "[" + _.join(await Promise.map(val, jasprToString(options)), ", ") + "]"
   } else if (typeof val === "string") {
-    return JSON.stringify(val)
+    if (options.bareString) return val
+    else return JSON.stringify(val)
+  } else if (options.json) {
+    try {return JSON.stringify(val)}
+    catch (e) {throw {"err": "no JSON representation", "value": val}}
   } else return "" + val
 }
 
 const printValue = (prefix="") => (val) =>
-  Promise.resolve(val).then(jasprToString).then(x => {
+  Promise.resolve(val).then(jasprToString({})).then(x => {
     console.log(prefix + x)
     return val
   })
@@ -228,7 +245,7 @@ function repl(scope) {
   rl.question("Jaspr> ", line =>
     line == "exit" ? rl.close() :
       Promise.resolve(line)
-        .then(x => jasprEval(scope, JSON.parse(x)))
+        .then(x => jasprEval(scope, parse(x)))
         .then(printValue(":= "), printValue("!! "))
         .then(() => setTimeout(() => repl(scope), 0)))
 }

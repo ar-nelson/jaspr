@@ -64,7 +64,7 @@ bindings with `let`, or use the `seq` macro to execute expressions sequentially.
 
 ## Core Macros
 
-* quoting: `null`, `true`, `false`, `[false]` -- uses syntax `'`, `` ` ``, `~`, `@~`
+* quoting: `null`, `true`, `false`, `[false]` -- uses syntax `'`, `` ` ``, `~`, `~@`
 * `par`
 * `seq`
 * `extend-scope`
@@ -144,6 +144,8 @@ bindings with `let`, or use the `seq` macro to execute expressions sequentially.
   * `snoc`
   * `concat`
   * `slice`
+  * `take`
+  * `drop`
   * `length`
   * `uniq`
   * `uniq?`
