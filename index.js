@@ -7,7 +7,7 @@ const parse = require('./parse')
 const Promise = require('bluebird')
 const _ = require('lodash')
 
-const magicPrefix = "◊"
+const magicPrefix = "⚙"
 const scopeKey = magicPrefix + "scope"
 const argsKey = magicPrefix + "args"
 const aliasKey = magicPrefix + "alias"
