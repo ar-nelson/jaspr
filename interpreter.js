@@ -244,7 +244,7 @@ async function jasprCall(callable, args=[]) {
     }
     const receiver = await Promise.resolve(args[0])
     if (!_.isArray(receiver)) {
-      throw {err: `numeric index into non-array`, index: callable}
+      throw {err: `numeric index into non-array`, index: callable, in: receiver}
     }
     let index = callable < 0 ? receiver.length - callable : callable
     if (0 <= index && index < receiver.length) return receiver[index]
@@ -258,7 +258,7 @@ async function jasprCall(callable, args=[]) {
     }
     const receiver = await Promise.resolve(args[0])
     if (!_.isPlainObject(receiver)) {
-      throw {err: `string index into non-object`, index: callable}
+      throw {err: `string index into non-object`, index: callable, in: receiver}
     }
     if (receiver.hasOwnProperty(callable)) return receiver[callable]
     throw {err: "not found", key: callable, in: receiver}

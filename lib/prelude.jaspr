@@ -3,18 +3,21 @@
   module: "prelude"
 
   export: [
-    par let closure apply fn* fn1 fn2 \* \ \2 \_ λ* λ λ2 λ_ partial η macroexpand macro-get
+    par let closure apply fn* fn1 fn2 \* \ \2 \_ λ* λ λ2 λ_ partial η
+    macroexpand macro-get gensym
 
     boolean? null? if and or no is? isnt?
 
-    number? + - * div mod
+    number? + - * div mod < <= > >= ≤ ≥
 
     string? print to-string to-json from-json str strlen substr
 
     array? array length slice take drop concat hd tl last init cons snoc zip for map
-    filter fold-left fold-right fold reduce flatten flat-map
+    filter fold-left fold-right fold reduce flatten flat-map all? any? indices
 
-    object? object merge assoc dissoc update keys values entries
+    object? has? object merge assoc dissoc update keys values entries
+
+    match-pattern test-pattern pattern-scope case
   ]
 
   macros: {
@@ -40,9 +43,9 @@
     λ: (macro-get fn1)
     \2: (macro-get fn2)
     λ2: (macro-get fn2)
-    \_: (λ body `(λ _ ~body))
+    \_: (λ* `(λ _ ~args))
     λ_: (macro-get \_)
-    macroexpand: (λ_ `(⚙macroexpand ~_))
+    macroexpand: (λ x `(⚙macroexpand ~x))
     partial: (λ* `(λ* (apply ~(hd args) (join ~(tl args) args))))
     η: (macro-get partial)
     
@@ -51,36 +54,72 @@
               `(⚙if ~(0 args) ~(1 args) ~(cons 'if (drop 2 args)))))
     and: (λ* (if args `(if ~(hd args) (and ~@(tl args)) false)
                       true))
-    or: (λ* (if args `(if ~(hd args) (or ~@(tl args)) true)
+    or: (λ* (if args `(if ~(hd args) true (or ~@(tl args)))
                      false))
+
+    // (match-pattern pattern value then-case else-case)
+    //
+    // Matches "value" against "pattern". If the match succeeds, executes
+    // "then-case" with all pattern variables in scope; otherwise, executes
+    // "else-case".
+
+    match-pattern: (λ*
+      (let { pattern: (0 args), value: (1 args),
+             then-case: (2 args), else-case: (3 args) }
+        (if (string? pattern) `(let ~(object (array pattern value)) ~then-case)
+            (let {
+              code: (\ x `(if (test-pattern (~null ~pattern) ~x)
+                              (let ~(pattern-scope pattern x) ~then-case)
+                             ~else-case))
+            } (if (string? value)
+                  (code value)
+                  (let {x: (gensym)} `(let ~(object (array x value)) ~(code x))))))))
+    
+    // (case value pattern-0 branch-0 ... pattern-n branch-n)
+    //
+    // Matches "value" against "pattern-0"..."pattern-n", and runs the branch
+    // corresponding to the first pattern that matches.
+
+    case: (λ*
+      (if (is? 0 (mod (length args) 2)) ("bad-case" {})
+          (is? 1 (length args)) null
+          (let {
+            value: (0 args)
+            code: (\ x
+              `(match-pattern ~(1 args) ~x ~(2 args) (case ~x ~@(drop 3 args))))
+          } (if (string? value)
+                (code value)
+                (let {x: (gensym)} `(let ~(object (array x value)) ~(code x)))))))
+               
   }
   defs: {
     par: '{⚙scope: {} fn: null}
     array: '{⚙scope: {} fn: ⚙args}
     object: '{⚙scope: {} fn: (⚙makeObject ⚙args)}
+    gensym: '{⚙scope: {} fn: (⚙gensym)}
     is?: (λ2 a b (⚙equals a b))
-    null?: (λ_ (is? _ null))
-    boolean?: (λ_ (⚙isBoolean _))
-    number?: (λ_ (⚙isNumber _))
-    string?: (λ_ (⚙isString _))
-    array?: (λ_ (⚙isArray _))
-    object?: (λ_ (⚙isObject _))
-    no: (λ_ (⚙if _ false true))
+    null?: (λ_ is? _ null)
+    boolean?: (λ_ or (is? true _) (is? false _))
+    number?: (λ_ ⚙isNumber _)
+    string?: (λ_ ⚙isString _)
+    array?: (λ_ ⚙isArray _)
+    object?: (λ_ ⚙isObject _)
+    no: (λ_ ⚙if _ false true)
     isnt?: (λ2 a b (no (is? a b)))
-    to-string: (λ_ (⚙toString _))
-    to-json: (λ_ (⚙toJson _))
-    from-json: (λ_ (⚙fromJson _))
-    print: (λ_ (⚙print _))
+    to-string: (λ_ ⚙toString _)
+    to-json: (λ_ ⚙toJson _)
+    from-json: (λ_ ⚙fromJson _)
+    print: (λ_ ⚙print _)
     apply: (λ2 fn args (⚙apply fn args))
     
     // Array functions
-    length: (λ_ (⚙arrayLength _))
+    length: (λ_ ⚙arrayLength _)
     slice: (λ* (⚙arraySlice (2 args) (0 args) (1 args)))
     take: (λ2 n xs (slice 0 n xs))
     drop: (λ2 n xs (slice n (length xs) xs))
     concat: (λ* (reduce (λ2 a b `[~@a ~@b]) [] args))
     hd: 0
-    tl: (λ_ (drop 1 _))
+    tl: (λ_ drop 1 _)
     last: -1
     init: (λ xs (take (- (length xs) 1) xs))
     cons: (λ2 h t `[~h ~@t])
@@ -104,7 +143,7 @@
                       (filter f (t xs))))
     fold-right: (fn*
       (let {f: (0 args) init: (1 args) xs: (2 args)}
-           (if xs (f (hd xs) (fold-right f init) (tl xs))
+           (if xs (f (hd xs) (fold-right f init (tl xs)))
                   init)))
     fold-left: (fn*
       (let {f: (0 args) init: (1 args) xs: (2 args)}
@@ -112,8 +151,11 @@
                   init)))
     fold: fold-left
     reduce: fold-left
-    flatten: (λ_ (if _ (concat (hd _) (flatten (tl _))) []))
+    flatten: (λ_ if _ (concat (hd _) (flatten (tl _))) [])
     flat-map: (λ2 f xs (flatten (map f xs)))
+    all?: (λ2 f xs (reduce (λ2 a b (and a (f b))) true xs))
+    any?: (λ2 f xs (reduce (λ2 a b (or a (f b))) false xs))
+    indices: (λ_ reduce (λ2 is x (cons (- (if is (hd is) (length _)) 1) is)) [] _)
 
     // Number functions
     +: (λ* (reduce (λ2 a b (⚙add a b)) 0 args))
@@ -138,13 +180,59 @@
                                             (2 args))))
     
     // Object functions
+    has?: (λ2 k o (⚙objectHas o k))
     merge: (λ* (reduce (λ2 a b (⚙objectMerge a b)) {} args))
     assoc: (λ* (merge (0 args) (object (array (1 args) (2 args)))))
     dissoc: (λ2 o k (⚙objectDelete o k))
     update: (λ* (let {o: (0 args) k: (1 args)}
                      (merge o (object (array k ((2 args) (k o)))))))
-    keys: (λ_ (⚙objectKeys _))
+    keys: (λ_ ⚙objectKeys _)
     values: (λ x (map (λ k (k x)) (keys x)))
     entries: (λ x (map (λ k (array k (k x))) (keys x)))
+
+    // Pattern matching
+    test-pattern: (λ2 pattern value
+      (if (or (no pattern) (boolean? pattern) (number? pattern))
+            (is? pattern value)
+          (string? pattern)
+            true
+          (and (array? pattern) (null? (0 pattern)))
+            (let {qp: (1 pattern)}
+              (if (array? qp)
+                    (and (array? value)
+                         (is? (length qp) (length value))
+                         (all? (λ_ test-pattern (0 _) (1 _)) (zip qp value)))
+                  (object? qp)
+                    (test-pattern qp value)
+                  // else
+                    (is? qp value)))
+          (object? pattern)
+            (and (object? value)
+                 (all? (λ_ and (has? (0 _) value)
+                               (test-pattern (1 _) ((0 _) value)))
+                       (entries pattern)))
+          // Final case: throw an exception
+          // TODO: Define a throw function.
+            ("bad-pattern" pattern)))
+
+    pattern-scope: (λ2 pattern value
+      (if (or (no pattern) (boolean? pattern) (number? pattern))
+            {}
+          (string? pattern)
+            (object (array pattern value))
+          (and (array? pattern) (null? (0 pattern)))
+            (let {qp: (1 pattern)}
+                 (if (array? qp)
+                       (apply merge (map (λ_ pattern-scope (1 _) (array (0 _) value))
+                                         (zip (indices qp) qp)))
+                     (object? qp)
+                       (pattern-scope qp value)
+                     {}))
+          (object? pattern)
+            (apply merge (map (λ_ pattern-scope (1 _) (array (array null (0 _)) value))
+                              (entries pattern)))
+          // Final case: null
+          // TODO: Define a throw function.
+            null))
   }
 }

@@ -32,13 +32,13 @@ const whitespace = p.alt(
     blockComment
   ).many().result(null)
 
-const literal = p.alt(
-  p.string("null").result(null),
-  p.string("true").result(true),
-  p.string("false").result(false),
-  p.regex(/[+-]?\d+(\.\d+)?([eE][+-]?\d+)?/).map(parseFloat).desc('number'))
-
 const unquoted = p.regex(/[^()\[\]{}.,:;'"`~\s]+/).desc('string')
+
+const literal = p.alt(
+  p.string("null").notFollowedBy(unquoted).result(null),
+  p.string("true").notFollowedBy(unquoted).result(true),
+  p.string("false").notFollowedBy(unquoted).result(false),
+  p.regex(/[+-]?\d+(\.\d+)?([eE][+-]?\d+)?/).map(parseFloat).desc('number'))
 
 const escape = p.string('\\').then(p.alt(
   p.string('n').result('\n'),
