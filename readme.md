@@ -9,12 +9,10 @@ Jaspr is:
 * Almost purely functional
   * All variables and data structures are immutable
   * Functions can still have side effects
-  * Similar to Erlang
 * Async by default
-  * Has an event loop
-  * I/O is automatically non-blocking, without callbacks
-  * Code has no execution order unless explicitly ordered
-  * Semi-lazy: Everything is a promise, unused values are still computed but possibly out of order
+  * No fixed execution order unless explicitly ordered
+  * Synchronous-looking I/O code becomes async, without callbacks
+  * Semi-lazy: Everything is a promise, unused values are still computed but don't block other code
 * Concurrent, using an Erlang-like process model
   * All code already executes concurrently, but processes provide error handling and isolation
   * Processes pass messages using channels (think Go)
@@ -112,7 +110,7 @@ To keep cyclical values from leaking into other parts of the program, the
 
 Functions are closures with a `fn` key. A function is executed when it is the
 first element of an evaluated list. The code it contains is evaluated in the
-closure's scope, with the call's arguments accessible via the `◊args` variable.
+closure's scope, with the call's arguments accessible via the `⚙args` variable.
 
 `null` is the quote macro, and `true`/`false` form a quasiquote/unquote macro.
 These shouldn't be used directly in Jaspr syntax, because standard Lisp quoting
