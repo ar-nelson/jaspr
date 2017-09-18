@@ -14,8 +14,8 @@ Jaspr is:
   * Has an event loop
   * I/O is automatically non-blocking, without callbacks
   * Code has no execution order unless explicitly ordered
-  * "Semi-lazy": Everything is a promise, unused values are still computed but possibly out of order
-* Actor-like process model, a la Erlang
+  * Semi-lazy: Everything is a promise, unused values are still computed but possibly out of order
+* Concurrent, using an Erlang-like process model
   * All code already executes concurrently, but processes provide error handling and isolation
   * Processes pass messages using channels (think Go)
   * Mutable state is process-local, making parallelism easy
@@ -40,12 +40,12 @@ Jaspr is:
 Jaspr is a personal project, and it's a long way from being usable. I took
 inspiration from several existing languages in designing it:
 
-* Clojure -- Library design, non-list data structures in Lisp
-* [Arc][arc] -- Terse syntax for core macros/functions: `if`, `no`, etc.
-* JavaScript -- JSON, async with event loop
-* Erlang -- Immutable functional programming, processes with message passing
-* Go -- Channels, autoload modules via Git
-* [Orc][orc] -- Concurrent-by-default evaluation
+* Clojure – Library design, non-list data structures in Lisp
+* [Arc][arc] – Terse syntax for core macros/functions: `if`, `no`, etc.
+* JavaScript – JSON, async with event loop
+* Erlang – Immutable functional programming, processes with message passing
+* Go – Channels, autoload modules via Git
+* [Orc][orc] – Concurrent-by-default evaluation
 
 [arc]: http://www.paulgraham.com/arc.html
 [orc]: http://orc.csres.utexas.edu/
@@ -55,8 +55,8 @@ inspiration from several existing languages in designing it:
 Jaspr is still under development. If you want to try it out, after installing
 dependencies with `npm install`, you can:
 
-* Run unit tests -- `npm test`
-* Get a REPL with the standard library -- `node index.js`
+* Run unit tests – `npm test`
+* Get a REPL with the standard library – `node index.js`
 
 The standard library can be found in `lib/prelude.jaspr`.
 
@@ -101,8 +101,8 @@ quoted to be literal. Numbers, booleans, nulls and objects evaluate as
 themselves, although the values of an object are evaluated as code unless the
 object is quoted.
 
-Closures in Jaspr are objects with `⚙scope` keys. Clojures are slightly magic;
-a clojure's scope can contain self-references, unlike all other Jaspr values.
+Closures in Jaspr are objects with `⚙scope` keys. Closures are slightly magic;
+a closure's scope can contain self-references, unlike all other Jaspr values.
 To keep cyclical values from leaking into other parts of the program, the
 `⚙scope` key cannot be directly accessed or converted to JSON.
 
