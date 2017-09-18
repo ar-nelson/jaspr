@@ -56,6 +56,10 @@ describe('eval', () => {
     await eval({}, [1, [null, ["foo", "bar"]]], "bar")
     await expect(i.jasprEval(noScope, [2, [null, ["foo", "bar"]]])).to.be.rejected
   })
+  it('supports negative array indices', async () => {
+    await eval({}, [-1, [null, ["foo", "bar"]]], "bar")
+    await eval({}, [-2, [null, ["foo", "bar"]]], "foo")
+  })
   it('indexes into objects by calling strings as functions', async () => {
     await eval({}, [[null, "a"], {a: 1, b: 2}], 1)
     await eval({}, [[null, "b"], {a: 1, b: 2}], 2)

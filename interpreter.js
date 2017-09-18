@@ -246,7 +246,7 @@ async function jasprCall(callable, args=[]) {
     if (!_.isArray(receiver)) {
       throw {err: `numeric index into non-array`, index: callable, in: receiver}
     }
-    let index = callable < 0 ? receiver.length - callable : callable
+    let index = callable < 0 ? receiver.length + callable : callable
     if (0 <= index && index < receiver.length) return receiver[index]
     throw {err: "not found", key: index, in: receiver}
   } else if (typeof(callable) === "string") {
