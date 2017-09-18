@@ -67,31 +67,35 @@ and automatic quoting.
 
 **Jaspr:**
 
-    // C/Java style comments are allowed in Jaspr
-    /* Including multiline comments */
+```jaspr
+// C/Java style comments are allowed in Jaspr
+/* Including multiline comments */
 
-    {
-      jaspr: "0.0.91"
-      module: "test"
-      run: (seq
+{
+  jaspr: "0.0.91"
+  module: "test"
+  run: (seq
 
-        // Arrays can be written with () instead of []. In a () context, quoted
-        // strings are surrounded by the quote macro (null).
-        (print (str "The meaning of life is " (* 6 7)))
+    // Arrays can be written with () instead of []. In a () context, quoted
+    // strings are surrounded by the quote macro (null).
+    (print (str "The meaning of life is " (* 6 7)))
 
-        // Commas are allowed in lists, but can be omitted.
-        (for-each (λx print x) '["foo", "bar", "baz"]))
-    }
+    // Commas are allowed in lists, but can be omitted.
+    (for-each (λx print x) '["foo", "bar", "baz"]))
+}
+```
 
 **JSON:**
 
-    {
-      "jaspr": "0.0.91",
-      "module": "test",
-      "run": ["seq",
-        ["print", ["str", [null, "The meaning of life is "], ["*", 6, 7]]],
-        ["for-each", ["λx", "print", "x"], [null, ["foo", "bar", "baz"]]]]
-    }
+```json
+{
+  "jaspr": "0.0.91",
+  "module": "test",
+  "run": ["seq",
+    ["print", ["str", [null, "The meaning of life is "], ["*", 6, 7]]],
+    ["for-each", ["λx", "print", "x"], [null, ["foo", "bar", "baz"]]]]
+}
+```
 
 ## Execution
 
