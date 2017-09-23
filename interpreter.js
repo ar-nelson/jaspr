@@ -12,6 +12,19 @@ const magicForms = {
   async if(p, thenCase, elseCase) {
     return jasprEval(this, jasprBool(await jasprEval(this, p)) ? thenCase : elseCase)
   },
+  async closure(defs, fn, fields = {}) {
+    if (!_.isPlainObject(defs)) {
+      throw {err: 'closure scope must be an object', scope: defs}
+    } if (!_.isPlainObject(fields)) {
+      throw {err: 'closure fields must be an object', fields}
+    }
+    const {scope, macroscope} = evalDefs(this, defs)
+    return _.merge(_.mapValues(fields, f => jasprEval(this, f)), {
+      [scopeKey]: scope,
+      [macroscopeKey]: macroscope,
+      fn
+    })
+  },
   async macroexpand(body) {
     return macroExpand(this.macroscope, await jasprEval(this, body))
   },
@@ -26,15 +39,9 @@ const magicForms = {
       [macroscopeKey]: Promise.resolve(_.clone(this.macroscope))
     }
   },
-  async extendScope(extras={}) {
-    return {
-      [scopeKey]: _.create(this.scope, await jasprEval(this, extras)),
-      [macroscopeKey]: this.macroscope
-    }
-  },
-  async extendMacroscope(extras={}) {
-    const {scope, macroscope} = await evalScope(extras, this.scope, this.macroscope)
-    return { [scopeKey]: scope, [macroscopeKey]: macroscope }
+  async extendScope(defs={}) {
+    const {scope, macroscope} = evalDefs(this, defs)
+    return { [scopeKey]: Promise.resolve(scope), [macroscopeKey]: Promise.resolve(macroscope) }
   }
 }
 
@@ -267,23 +274,32 @@ async function jasprCall(callable, args=[]) {
   }
 }
 
-async function evalModule(module, parentScope={}, parentMacroscope={}) {
+function evalDefs(scopes, defs) {
   let scope = null, macroscope = null
-  const name = module.module
-  const exports = module.export
-  scope = _.mapValues(module.defs || {}, (v, k) =>
+  const scopeDefs = _.omitBy(defs, (v, k) => k.includes('.'))
+  const macroDefs =
+    _.mapKeys(_.pickBy(defs, (v, k) => _.startsWith(k, 'macro.')),
+              (v, k) => k.substring(6))
+  scope = _.create(scopes.scope, _.mapValues(scopeDefs, (v, k) =>
     Promise.delay(0)
            .then(() => macroExpand(macroscope, v),
-                 printValue(`!! MACROEXPAND ERROR IN ${name}.${k}: `, true))
+                 printValue(`!! MACROEXPAND ERROR IN ${k}: `, true))
            .then(x => jasprEval({scope, macroscope}, x),
-                 printValue(`!! EVAL ERROR IN ${name}.${k}: `, true)))
+                 printValue(`!! EVAL ERROR IN ${k}: `, true))))
+  macroscope = _.create(scopes.macroscope, _.mapValues(macroDefs, (v, k) =>
+    Promise.delay(0)
+           .then(() => macroExpand(macroscope, v),
+                 printValue(`!! MACROEXPAND ERROR IN ${k}: `, true))
+           .then(x => jasprEval({scope, macroscope}, x),
+                 printValue(`!! EVAL ERROR IN ${k}: `, true))))
+  return {scope, macroscope}
+}
 
-  macroscope = _.mapValues(module.macros || {}, (v, k) =>
-    Promise.delay(0)
-           .then(() => macroExpand(macroscope, v),
-                 printValue(`!! MACROEXPAND ERROR IN ${name}.${k}: `, true))
-           .then(x => jasprEval({scope, macroscope}, x),
-                 printValue(`!! EVAL ERROR IN ${name}.${k}: `, true)))
+function evalModule(module, parentScope={}, parentMacroscope={}) {
+  const name = module.module
+  const exports = module.export || module.exports
+  const {scope, macroscope} =
+    evalDefs({scope: parentScope, macroscope: parentMacroscope}, module.defs)
   return {
     name,
     scope: _.pick(scope, exports),
@@ -326,4 +342,4 @@ const printValue = (prefix="", fail=false) => (val) =>
     if (fail) {throw val} else {return val}
   })
 
-module.exports = {jasprEval, macroExpand, evalModule, isClosure, jasprToString, printValue}
+module.exports = {jasprEval, macroExpand, evalDefs, evalModule, isClosure, jasprToString, printValue}

@@ -32,7 +32,7 @@ const whitespace = p.alt(
     blockComment
   ).many().result(null)
 
-const unquoted = p.regex(/[^()\[\]{}.,:;'"`~\s]+/).desc('string')
+const unquoted = p.regex(/[^()\[\]{},:;'"`~\s]+/).desc('string')
 
 const literal = p.alt(
   p.string("null").notFollowedBy(unquoted).result(null),

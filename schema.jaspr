@@ -1,0 +1,96 @@
+// JSON schema for Jaspr modules
+// Author: Adam Nelson <adam@nels.onl>
+{
+  id: "http://adam.nels.onl/schema/jaspr/module"
+  $schema: "http://json-schema.org/draft-06/schema#"
+  title: "Jaspr Module"
+  description: "A module in the Jaspr programming language"
+  type: object
+  properties: {
+    jaspr: {
+      description: "Jaspr version"
+      type: string
+    }
+    module: {
+      description: "Module name"
+      type: string
+    }
+    script: {
+      description: "
+        If true, the module is an executable script.
+        A module name is not required, but a `main` function is."
+      type: boolean
+    }
+    import: {$ref: "#/definitions/imports"}
+    imports: {$ref: "#/definitions/imports"}
+    export: {$ref: "#/definitions/names"}
+    exports: {$ref: "#/definitions/names"}
+    doc: {
+      description: "Documentation for the module, in Markdown format"
+      type: string
+    }
+    defs: {
+      description: "
+        Definitions in the module. Macro definitions start with `macro.`,
+        and docstrings start with `doc.`."
+      patternProperties: {
+        "^(macro[.])?[^.,:`~'\"()\\[\\]{}\\s]+$": {$ref: "#/definitions/expr"}
+        "^doc[.][^.,:`~'\"()\\[\\]{}\\s]+$": {type: string}
+      }
+      additionalProperties: false
+    }
+    tests: {
+      description: "Unit tests for the module."
+      additionalProperties: {$ref: "#/definitions/expr"}
+    }
+
+    required: [jaspr, defs]
+  }
+  not: [
+    {required: [import, imports]}
+    {required: [export, exports]}
+  ]
+  anyOf: [
+    {required: [module, export]}
+    {required: [module, exports]}
+    {required: [script]}
+  ]
+
+  definitions: {
+    expr: {
+      description: "A Jaspr expression"
+    }
+    name: {
+      description: "A valid Jaspr identifier"
+      type: string
+      pattern: "^[^.,:`~'\"()\\[\\]{}\\s]+$"
+    }
+    names: {
+      description: "A list of names imported/exported from a module"
+      anyOf: [{
+        type: array
+        items: {$ref: "#/definitions/name"}
+      }, {
+        type: object
+        patternProperties: {
+          "^[^.,:`~'\"()\\[\\]{}\\s]+$": {$ref: "#/definitions/name"}
+        }
+        additionalProperties: false
+      }]
+    }
+    imports: {
+      description: "A list or object specifying the modules that this module depends on"
+      anyOf: [{
+        type: array
+        items: {type: string}
+      }, {
+        type: object
+        additionalProperties: {anyOf: [
+          {type: boolean}
+          {$ref: "#/definitions/name"}
+          {$ref: "#/definitions/names"}
+        ]}
+      }]
+    }
+  }
+}

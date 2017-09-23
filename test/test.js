@@ -56,7 +56,7 @@ describe('eval', () => {
     await eval({}, [1, [null, ["foo", "bar"]]], "bar")
     await expect(i.jasprEval(noScope, [2, [null, ["foo", "bar"]]])).to.be.rejected
   })
-  it('supports negative array indices', async () => {
+  it('negative array indices', async () => {
     await eval({}, [-1, [null, ["foo", "bar"]]], "bar")
     await eval({}, [-2, [null, ["foo", "bar"]]], "foo")
   })
@@ -111,14 +111,14 @@ describe('eval', () => {
       await eval({foo: 1}, [true, [true, [false, "foo"]]], [true, [false, "foo"]])
     })
   })
-  describe('builtin functions', () => {
-    it('supports ⚙if', async () => {
+  describe('supports builtin function', () => {
+    it('⚙if', async () => {
       await eval({}, ["⚙if", true, 1, 2], 1)
       await eval({}, ["⚙if", false, 1, 2], 2)
     })
-    it('supports ⚙macroget', () =>
+    it('⚙macroget', () =>
       expect(i.jasprEval({scope: {}, macroscope: {a: 1}}, ["⚙macroget", "a"])).to.become(1))
-    it('supports ⚙macroexpand', async () => {
+    it('⚙macroexpand', async () => {
       await expect(i.jasprEval(
         {scope: {}, macroscope: {add1}},
         ["⚙macroexpand", [null, ["add1", 4]]])).to.become(5)
@@ -129,26 +129,33 @@ describe('eval', () => {
         {scope: {add1: null}, macroscope: {add1, macro_add1}},
         ["⚙macroexpand", [null, ["macro_add1", 4]]])).to.become(5)
     })
-    it('supports ⚙copyScope', () =>
+    it('⚙copyScope', () =>
       eval({a:1, b: 2}, ["⚙copyScope"], {"⚙scope": {a: 1, b: 2}, "⚙macros": {}}))
-    it('supports ⚙extendScope', async () => {
-      await eval({a:1, b: 2}, ["⚙extendScope"], {"⚙scope": {a: 1, b: 2}, "⚙macros": {}})
-      await eval({a:1, b: 2}, ["⚙extendScope", {a: 3}], {"⚙scope": {a: 3, b: 2}, "⚙macros": {}})
-      await eval({a:1, b: 2}, ["⚙extendScope", {c: 3}], {"⚙scope": {a: 1, b: 2, c: 3}, "⚙macros": {}})
+    it('⚙closure', async () => {
+      await eval({a:1, b: 2}, ["⚙closure", {}, ["+", 1, 2]], {"⚙scope": {a: 1, b: 2}, "⚙macros": {}, "fn": ["+", 1, 2]})
+      const cl1 = await i.jasprEval({scope: {a: 1, b: 2}, macroscope: {}},  ["⚙closure", {a: 3}])
+      const sc1 = Promise.resolve(cl1["⚙scope"])
+      await expect(sc1.then(s => s.a)).to.become(3)
+      await expect(sc1.then(s => s.b)).to.become(2)
+      const cl2 = await i.jasprEval({scope: {a: 1, b: 2}, macroscope: {}},  ["⚙closure", {c: 3}])
+      const sc2 = Promise.resolve(cl2["⚙scope"])
+      await expect(sc2.then(s => s.a)).to.become(1)
+      await expect(sc2.then(s => s.b)).to.become(2)
+      await expect(sc2.then(s => s.c)).to.become(3)
     })
-    it('supports ⚙equals', async () => {
+    it('⚙equals', async () => {
       await eval({}, ["⚙equals", 0, 0], true)
       await eval({}, ["⚙equals", 0, 1], false)
       await eval({}, ["⚙equals", 0, null], false)
     })
-    it('supports ⚙add', () => eval({}, ["⚙add", 2, 3], 5))
-    it('supports ⚙subtract', () => eval({}, ["⚙subtract", 2, 3], -1))
-    it('supports ⚙multiply', () => eval({}, ["⚙multiply", 2, 3], 6))
-    it('supports ⚙divide', () => eval({}, ["⚙divide", 6, 2], 3))
-    it('supports ⚙modulus', () => eval({}, ["⚙modulus", 5, 2], 1))
-    it('supports ⚙negate', () => eval({}, ["⚙negate", 5], -5))
-    it('supports ⚙toString', () => eval({}, ["⚙toString", 91], "91"))
-    it('supports ⚙objectMerge', () =>
+    it('⚙add', () => eval({}, ["⚙add", 2, 3], 5))
+    it('⚙subtract', () => eval({}, ["⚙subtract", 2, 3], -1))
+    it('⚙multiply', () => eval({}, ["⚙multiply", 2, 3], 6))
+    it('⚙divide', () => eval({}, ["⚙divide", 6, 2], 3))
+    it('⚙modulus', () => eval({}, ["⚙modulus", 5, 2], 1))
+    it('⚙negate', () => eval({}, ["⚙negate", 5], -5))
+    it('⚙toString', () => eval({}, ["⚙toString", 91], "91"))
+    it('⚙objectMerge', () =>
       eval({}, ["⚙objectMerge", {a: 1, b: 2}, {b: 3, c: 4}], {a: 1, b: 3, c: 4}))
   })
   it('can call a function from the scope', () => eval({add1}, ["add1", 2], 3))
@@ -193,17 +200,12 @@ describe('macroexpand', () => {
 })
 
 const letScope = {
-  "closure":  [null, { "⚙scope": {}, "fn":
-    [true, ["⚙objectMerge",
-            ["⚙extendScope", [false, [0, "⚙args"]]],
-            {"fn": ["⚙macroexpand", [[false, null], [false, [1, "⚙args"]]]]}
-  ]]}],
-  "let": ["closure", {}, [true, [["closure", [[false], "⚙args"]]]]]
+  "macro.let": ["⚙closure", {}, [true, [["⚙closure", [[false], "⚙args"]]]]]
 }
 
 const fnScope = _.merge(letScope, {
-  "fn*": ["closure", {},
-    [true, ["closure", {}, ["let", {"args": "⚙args"}, [false, [0, "⚙args"]]]]]]
+  "macro.fn*": ["⚙closure", {},
+    [true, ["⚙closure", {}, ["let", {"args": "⚙args"}, [false, [0, "⚙args"]]]]]]
 })
 
 describe('evalModule', () => {
@@ -214,7 +216,7 @@ describe('evalModule', () => {
        .then(deepResolve)).to.become(to)
   }
   it('evaluates literal variables', async () => {
-    const {scope} = await i.evalModule({
+    const {scope} = i.evalModule({
       module: 'test',
       export: ['a', 'b'],
       defs: {a: 1, b: 2}
@@ -223,7 +225,7 @@ describe('evalModule', () => {
     await expect(scope.b).to.become(2)
   })
   it('evaluates simple code w/o a scope', async () => {
-    const {scope} = await i.evalModule({
+    const {scope} = i.evalModule({
       module: 'test',
       export: ['a', 'b'],
       defs: {a: [null, "foo"], b: ["⚙add", 1, 2]}
@@ -232,7 +234,7 @@ describe('evalModule', () => {
     await expect(scope.b).to.become(3)
   })
   it('evaluates variables in the scope', async () => {
-    const {scope} = await i.evalModule({
+    const {scope} = i.evalModule({
       module: 'test',
       export: ['a', 'b', 'c'],
       defs: {a: 1, b: "a", c: "b"}
@@ -242,7 +244,7 @@ describe('evalModule', () => {
     await expect(scope.c).to.become(1)
   })
   it('evaluates functions in the scope', async () => {
-    const {scope} = await i.evalModule({
+    const {scope} = i.evalModule({
       module: 'test',
       export: ['a', 'b'],
       defs: {add1: [null, add1], a: ["add1", 2], b: ["add1", 3]}
@@ -251,17 +253,16 @@ describe('evalModule', () => {
     await expect(scope.b).to.become(4)
   })
   it('evaluates macros in the scope', async () => {
-    const {scope} = await i.evalModule({
+    const {scope} = i.evalModule({
       module: 'test',
       export: ['a', 'b'],
-      macros: {add1: [null, add1]},
-      defs: {a: ["add1", 2], b: ["add1", 3]}
+      defs: {a: ["add1", 2], b: ["add1", 3], "macro.add1": [null, add1]}
     })
     await expect(scope.a).to.become(3)
     await expect(scope.b).to.become(4)
   })
   it('can define "let"', async () => {
-    const s = await i.evalModule({module: 'test', export: ['let', 'closure'], macros: letScope})
+    const s = i.evalModule({module: 'test', export: ['let', 'closure'], defs: letScope})
     await eval(s, ["let", {a: 1}, "a"], 1)
     await eval(s, ["let", {a: 1}, ["let", {b: 2}, "b"]], 2)
     await eval(s, ["let", {a: 1}, ["let", {a: 2}, "a"]], 2)
@@ -269,33 +270,31 @@ describe('evalModule', () => {
     await eval(s, ["let", {a: ["let", {b: 2}, "b"]}, "a"], 2)
   })
   it('can use "let" from another scope member', async () => {
-    const {scope} = await i.evalModule({
+    const {scope} = i.evalModule({
       module: 'test',
       export: ['a'],
-      macros: letScope,
-      defs: {a: ["let", {b: 1}, "b"]}
+      defs: _.merge(letScope, {a: ["let", {b: 1}, "b"]})
     })
     await expect(scope.a).to.become(1)
   })
   it('can define "fn*"', async () => {
-    const {macroscope} = await i.evalModule({module: 'test', export: ['fn*'], macros: fnScope})
+    const {macroscope} = await i.evalModule({module: 'test', export: ['fn*'], defs: fnScope})
     await expect(macroscope["fn*"]).to.be.fulfilled
   })
   it('can define a macro with "fn*"', async () => {
-    const {macroscope} = await i.evalModule({
+    const {macroscope} = i.evalModule({
       module: 'test',
       export: ['add1'],
-      macros: _.merge(fnScope, {add1: ["fn*", ["⚙add", 1, [0, "args"]]]})
+      defs: _.merge(fnScope, {"macro.add1": ["fn*", ["⚙add", 1, [0, "args"]]]})
     })
     await expect(macroscope.add1).to.be.fulfilled
     await expect(i.isClosure(await macroscope.add1)).to.be.true
   })
   it('can use a "fn*"-defined macro in the scope', async () => {
-    const {scope} = await i.evalModule({
+    const {scope} = i.evalModule({
       module: 'test',
       export: ['a'],
-      macros: _.merge(fnScope, {add1: ["fn*", ["⚙add", 1, [0, "args"]]]}),
-      defs: {a: ["add1", 2]}
+      defs: _.merge(fnScope, {"macro.add1": ["fn*", ["⚙add", 1, [0, "args"]]], a: ["add1", 2]})
     })
     await expect(scope.a).to.become(3)
   })

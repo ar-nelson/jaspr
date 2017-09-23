@@ -22,24 +22,25 @@
     match-pattern test-pattern pattern-scope case
   ]
 
-  macros: {
-    closure: '{
-      ⚙scope: {}
-      fn: `(⚙objectMerge
-        (⚙extendScope ~(0 ⚙args))
-        {fn: (⚙macroexpand (~null ~(1 ⚙args)))})
-    }
-    let: (closure {} `((closure, ~@⚙args)))
-    fn*: (closure {} `(closure {} (let ~(object (array (0 ⚙args) "⚙args")) ~(1 ⚙args))))
-    fn1: (fn* args `(closure {}
+  defs: {
+    par: '{⚙scope: {} fn: null}
+    array: '{⚙scope: {} fn: ⚙args}
+    object: '{⚙scope: {} fn: (⚙makeObject ⚙args)}
+    gensym: '{⚙scope: {} fn: (⚙gensym)}
+    apply: '{⚙scope: {} fn: (⚙apply (0 ⚙args) (1 ⚙args))}
+
+    macro.closure: '{⚙scope: {} fn: `(⚙closure ~(0 ⚙args) ~(1 ⚙args))}
+    macro.let: (closure {} `((closure ~(0 ⚙args) ~(1 ⚙args))))
+    macro.fn*: (closure {} `(closure {} (let ~(object (array (0 ⚙args) "⚙args")) ~(1 ⚙args))))
+    macro.fn1: (fn* args `(closure {}
       (let ~(object (array (0 args) '(0 ⚙args)))
            ~(1 args))))
-    fn2: (fn* args `(closure {}
+    macro.fn2: (fn* args `(closure {}
       (let ~(object (array (0 args) '(0 ⚙args))
                     (array (1 args) '(1 ⚙args)))
            ~(2 args))))
-    macro-get: (fn1 x `(⚙macroget ~x))
-    macroexpand: (fn1 x `(⚙macroexpand ~x))
+    macro.macro-get: (fn1 x `(⚙macroget ~x))
+    macro.macroexpand: (fn1 x `(⚙macroexpand ~x))
 
     // Lambda macros
     //
@@ -47,77 +48,30 @@
     // (fn1 _ (print _)). The named lambdas \x, \y, and \z allow nesting with
     // different variable names. \xy is a two-argument lambda.
 
-    \: (fn* body `(fn1 _ ~body)), λ: (macro-get \)
-    \x: (fn* body `(fn1 x ~body)), λx: (macro-get \x)
-    \y: (fn* body `(fn1 y ~body)), λy: (macro-get \y)
-    \z: (fn* body `(fn1 z ~body)), λz: (macro-get \z)
-    \xy: (fn* body `(fn2 x y ~body)), λxy: (macro-get \xy)
-
-    partial: (fn* pre-args `(fn* post-args
-      (apply ~(hd pre-args) (join ~(tl pre-args) post-args))))
-    η: (macro-get partial)
+    macro.\: (fn* body `(fn1 _ ~body)), macro.λ: (macro-get \)
+    macro.\x: (fn* body `(fn1 x ~body)), macro.λx: (macro-get \x)
+    macro.\y: (fn* body `(fn1 y ~body)), macro.λy: (macro-get \y)
+    macro.\z: (fn* body `(fn1 z ~body)), macro.λz: (macro-get \z)
+    macro.\xy: (fn* body `(fn2 x y ~body)), macro.λxy: (macro-get \xy)
     
-    if: (fn* args
+    macro.partial: (fn* pre-args `(fn* post-args
+      (apply ~(hd pre-args) (join ~(tl pre-args) post-args))))
+    macro.η: (macro-get partial)
+
+    // Boolean operations and predicates
+    ////////////////////////////////////////////////////////////////////////////
+    
+    macro.if: (fn* args
       (⚙if (≤ (length args) 4)
             (cons '⚙if args)
             `(⚙if ~(0 args) ~(1 args) ~(cons 'if (drop 2 args)))))
-    and: (fn* args (if args `(if ~(hd args) (and ~@(tl args)) false)
-                            true)), ∧: (macro-get and)
-    or: (fn* args (if args `(if ~(hd args) true (or ~@(tl args)))
-                           false)), ∨: (macro-get or)
-
-    // (match-pattern pattern value then-case else-case)
-    //
-    // Matches "value" against "pattern". If the match succeeds, executes
-    // "then-case" with all pattern variables in scope; otherwise, executes
-    // "else-case".
-
-    match-pattern: (fn* args
-      (let { pattern: (0 args), value: (1 args),
-             then-case: (2 args), else-case: (3 args) }
-        (if (string? pattern) `(let ~(object (array pattern value)) ~then-case)
-            (let {
-              code: (fn1 x `(if (test-pattern (~null ~pattern) ~x)
-                                (let ~(pattern-scope pattern x) ~then-case)
-                                ~else-case))
-            } (if (string? value)
-                  (code value)
-                  (let {x: (gensym)} `(let ~(object (array x value)) ~(code x))))))))
-    
-    // (case value pattern-0 branch-0 ... pattern-n branch-n)
-    //
-    // Matches "value" against "pattern-0"..."pattern-n", and runs the branch
-    // corresponding to the first pattern that matches.
-
-    case: (fn* args
-      (if (= 0 (mod (length args) 2)) ("bad-case" {})
-          (= 1 (length args)) null
-          (let {
-            value: (0 args)
-            code: (fn1 x
-              `(match-pattern ~(1 args) ~x ~(2 args) (case ~x ~@(drop 3 args))))
-          } (if (string? value)
-                (code value)
-                (let {x: (gensym)} `(let ~(object (array x value)) ~(code x)))))))
-    
-    // (fn arg-0-0 ... arg-0-n body-0 | ... | arg-m-0 ... arg-m-n body-m)
-    //
-    // Defines a function by cases. Each case is a list of argument patterns
-    // followed by an expression. Cases are separated by the string "|". If the
-    // function is called with arguments that do not match any case, it throws
-    // an exception.
-
-    fn: (fn* args
-      `(closure {} (case ⚙args
-        ~@(flat-map (fn1 pat `[(~null ~(init pat)) ~(last pat)])
-                    (split '| args))
-        _ ("fn-bad-match" {}))))
-  }
-  defs: {
-    par: '{⚙scope: {} fn: null}
-    array: '{⚙scope: {} fn: ⚙args}
-    object: '{⚙scope: {} fn: (⚙makeObject ⚙args)}
-    gensym: '{⚙scope: {} fn: (⚙gensym)}
+    macro.and: (fn* args (if args `(if ~(hd args) (and ~@(tl args)) false)
+                                  true))
+    macro.∧: (macro-get and)
+    macro.or: (fn* args (if args `(if ~(hd args) true (or ~@(tl args)))
+                                 false))
+    macro.∨: (macro-get or)
+    no: (λ ⚙if _ false true), ¬: no
 
     address-eq?: (λxy ⚙equals x y)
     eq?: (λxy or (address-eq? x y)
@@ -142,14 +96,10 @@
     scalar?: (λ or (null? _) (boolean? _) (number? _) (string? _))
     literal?: (λ or (null? _) (boolean? _) (number? _)
                     (and (array? _) (= 2 (length _)) (null? (0 _)) (scalar? 1 _)))
-    no: (λ ⚙if _ false true), ¬: no
-    to-string: (λ ⚙toString _)
-    to-json: (λ ⚙toJson _)
-    from-json: (λ ⚙fromJson _)
-    print: (λ ⚙print _)
-    apply: (λxy ⚙apply x y)
-    
+
     // Array functions
+    ////////////////////////////////////////////////////////////////////////////
+
     length: (λ ⚙arrayLength _)
     slice: (fn* a (⚙arraySlice (2 a) (0 a) (1 a)))
     take: (fn2 n xs (slice 0 n xs))
@@ -199,6 +149,8 @@
         '[[]] xs))
 
     // Number functions
+    ////////////////////////////////////////////////////////////////////////////
+
     +: (fn* args (reduce (λxy ⚙add x y) 0 args))
     *: (fn* args (reduce (λxy ⚙multiply x y) 1 args)), ×: *
     -: (fn* args (if (address-eq? 1 (length args))
@@ -214,12 +166,20 @@
     ≥: >=
 
     // String functions
+    ////////////////////////////////////////////////////////////////////////////
+
     str: (fn* args (reduce (λxy ⚙stringJoin x y) "" args))
     strlen: (λxy ⚙stringLength x y)
     substr: (fn str start (⚙stringSlice str start (strlen str))
               | str start end (⚙stringSlice str start end))
-    
+    to-string: (λ ⚙toString _)
+    to-json: (λ ⚙toJson _)
+    from-json: (λ ⚙fromJson _)
+    print: (λ ⚙print _)
+
     // Object functions
+    ////////////////////////////////////////////////////////////////////////////
+
     has?: (λxy ⚙objectHas y x)
     merge: (fn* args (reduce (λxy ⚙objectMerge x y) {} args))
     assoc: (fn obj key val (merge obj (object (array key val))))
@@ -230,6 +190,8 @@
     entries: (λx map (λy (array y (y x))) (keys x))
 
     // Pattern matching
+    ////////////////////////////////////////////////////////////////////////////
+
     test-pattern: (fn2 pattern value
       (if (or (no pattern) (boolean? pattern) (number? pattern))
             (= pattern value)
@@ -273,5 +235,52 @@
           // Final case: null
           // TODO: Define a throw function.
             null))
+
+    // (match-pattern pattern value then-case else-case)
+    //
+    // Matches "value" against "pattern". If the match succeeds, executes
+    // "then-case" with all pattern variables in scope; otherwise, executes
+    // "else-case".
+
+    macro.match-pattern: (fn* args
+      (let { pattern: (0 args), value: (1 args),
+             then-case: (2 args), else-case: (3 args) }
+        (if (string? pattern) `(let ~(object (array pattern value)) ~then-case)
+            (let {
+              code: (fn1 x `(if (test-pattern (~null ~pattern) ~x)
+                                (let ~(pattern-scope pattern x) ~then-case)
+                                ~else-case))
+            } (if (string? value)
+                  (code value)
+                  (let {x: (gensym)} `(let ~(object (array x value)) ~(code x))))))))
+    
+    // (case value pattern-0 branch-0 ... pattern-n branch-n)
+    //
+    // Matches "value" against "pattern-0"..."pattern-n", and runs the branch
+    // corresponding to the first pattern that matches.
+
+    macro.case: (fn* args
+      (if (= 0 (mod (length args) 2)) ("bad-case" {})
+          (= 1 (length args)) null
+          (let {
+            value: (0 args)
+            code: (fn1 x
+              `(match-pattern ~(1 args) ~x ~(2 args) (case ~x ~@(drop 3 args))))
+          } (if (string? value)
+                (code value)
+                (let {x: (gensym)} `(let ~(object (array x value)) ~(code x)))))))
+    
+    // (fn arg-0-0 ... arg-0-n body-0 | ... | arg-m-0 ... arg-m-n body-m)
+    //
+    // Defines a function by cases. Each case is a list of argument patterns
+    // followed by an expression. Cases are separated by the string "|". If the
+    // function is called with arguments that do not match any case, it throws
+    // an exception.
+
+    macro.fn: (fn* args
+      `(closure {} (case ⚙args
+        ~@(flat-map (fn1 pat `[(~null ~(init pat)) ~(last pat)])
+                    (split '| args))
+        _ ("fn-bad-match" {}))))
   }
 }
