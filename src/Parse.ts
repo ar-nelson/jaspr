@@ -1,4 +1,4 @@
-/* 
+/* *
  * --- Jaspr Source Parser ---
  * Adam R. Nelson <adam@nels.onl>
  *
@@ -11,22 +11,23 @@
  * syntax-quote (` ~ ~@) syntaxes are also supported.
  */
 
-const p = require('parsimmon')
-const _ = require('lodash')
+import * as p from 'parsimmon'
+import * as _ from 'lodash'
+import {Json, JsonObject} from './Jaspr'
 
 const lineComment =
   p.string('//').then(p.takeWhile(x => x != '\n')).desc('line comment')
 
-const inBlockComment =
+const inBlockComment: p.Parser<string> =
   p.string('*/').result("").or(p.seqMap(
     p.takeWhile(x => x != '*'),
     p.lazy(() => inBlockComment),
     (a, b) => a + b))
 
-const blockComment =
+const blockComment: p.Parser<string> =
   p.string('/*').then(inBlockComment).desc('block comment')
 
-const whitespace = p.alt(
+const whitespace: p.Parser<null> = p.alt(
     p.regex(/[\s,]+/).desc('whitespace'),
     lineComment,
     blockComment
@@ -34,7 +35,7 @@ const whitespace = p.alt(
 
 const unquoted = p.regex(/[^()\[\]{},:;'"`~\s]+/).desc('string')
 
-const literal = p.alt(
+const literal: p.Parser<null | boolean | number> = p.alt(
   p.string("null").notFollowedBy(unquoted).result(null),
   p.string("true").notFollowedBy(unquoted).result(true),
   p.string("false").notFollowedBy(unquoted).result(false),
@@ -48,7 +49,7 @@ const escape = p.string('\\').then(p.alt(
   p.string('f').result('\f'),
   p.string('v').result('\v')))
 
-const inQuoted =
+const inQuoted: p.Parser<string> =
   p.string('"').result("").or(p.seqMap(
     escape.or(p.takeWhile(x => x != '"' && x != '\\')),
     p.lazy(() => inQuoted),
@@ -56,7 +57,7 @@ const inQuoted =
 
 const quoted = p.string('"').then(inQuoted).desc('quoted string')
 
-const quoteChar = p.alt(
+const quoteChar = p.alt<Json>(
   p.string("'").result(null),
   p.string("`").result(true),
   p.string("~@").result([false]),
@@ -77,18 +78,20 @@ const pun = whitespace.then(quoted.or(unquoted)).map(k => [k, k])
 const entry = p.seq(key, p.lazy(() => value))
 const lEntry = p.seq(key, p.lazy(() => lValue))
 
-const object = whitespace.skip(p.string("{")).then(entry.many())
-                         .skip(whitespace).skip(p.string("}"))
-                         .map(_.fromPairs).desc('object')
+const object: p.Parser<JsonObject> = 
+  whitespace.skip(p.string("{")).then(entry.many())
+            .skip(whitespace).skip(p.string("}"))
+            .map(_.fromPairs).desc('object')
 
-const lObject = whitespace.skip(p.string("{")).then((lEntry.or(pun)).many())
-                          .skip(whitespace).skip(p.string("}"))
-                          .map(_.fromPairs).desc('object')
+const lObject: p.Parser<JsonObject> = 
+  whitespace.skip(p.string("{")).then((lEntry.or(pun)).many())
+            .skip(whitespace).skip(p.string("}"))
+            .map(_.fromPairs).desc('object')
 
-const value = whitespace.then(p.alt(
+const value: p.Parser<Json> = whitespace.then(p.alt<Json>(
   literal, quoted, quote, lArray, array, object, unquoted))
 
-const lValue = whitespace.then(p.alt(
+const lValue: p.Parser<Json> = whitespace.then(p.alt<Json>(
   literal, quoted.map(s => [null, s]), lQuote, lArray, array, lObject, unquoted))
 
-module.exports = x => value.skip(whitespace).tryParse(x)
+export default (x: string): Json => value.skip(whitespace).tryParse(x)
