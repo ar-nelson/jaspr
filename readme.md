@@ -17,22 +17,41 @@ Jaspr is:
   * All code already executes concurrently, but processes provide error handling and isolation
   * Processes pass messages using channels (think Go)
   * Mutable state is process-local, making parallelism easy
+* Extensive Unicode support
+  * Unquoted strings are normalized (NFKC)
+  * Syntax supports smart quotes and exotic paren/bracket/brace characters
 * Implemented on top of JavaScript
   * Other backends are planned
 
 ```jaspr
-{
-  jaspr: "0.0.91"
-  module: fibonacci
-  export: [fib]
-  defs: {
-    fib: (defn {
-            doc: "Returns the nth Fibonacci number"
-          } 0 0
-          | 1 1
-          | n (* (fib (- n 1)) (fib (- n 2))))
-  }
-}
+$schema: “http://adam.nels.onl/schema/jaspr/module”
+$module: example
+$export: {fib, quicksort}
+
+doc.fib: “Computes the _n_th Fibonacci number.”
+fib:
+  (fn 0 0
+    | 1 1
+    | n (+ (fib (- n 1)) (fib (- n 2))))
+
+doc.quicksort: “
+  Recursively sorts an array of numbers using the Quicksort algorithm.
+”
+quicksort:
+  (fn []  []
+    | [x] [x]
+    | xs (let {
+            pivot: (-> xs len (div 2) floor),
+            y: (pivot xs),
+            choose:
+              (fn p x (let {
+                         k: (if (< x y) '<
+                                (> x y) '>
+                                (= x y) '=
+                                (throw {err: “cannot compare”, x, y}))
+                      } (update (λ cons x _) k p))),
+            parts: (reduce choose {<: [], =: [], >: []} xs)
+          } (++ (quicksort ('< parts)) ('= parts) (quicksort ('> parts)))))
 ```
 
 Jaspr is a personal project, and it's a long way from being usable. I took
@@ -44,6 +63,7 @@ inspiration from several existing languages in designing it:
 * Erlang – Immutable functional programming, processes with message passing
 * Go – Channels, autoload modules via Git
 * [Orc][orc] – Concurrent-by-default evaluation
+* Perl 6 - Pedantic Unicode support in syntax and string handling
 
 [arc]: http://www.paulgraham.com/arc.html
 [orc]: http://orc.csres.utexas.edu/
@@ -68,30 +88,37 @@ and automatic quoting.
 ```jaspr
 // C/Java style comments are allowed in Jaspr
 /* Including multiline comments */
+; Lisp-style comments work too!
 
-{
-  jaspr: "0.0.91"
-  module: "test"
-  run: (seq
+;; The outermost level of braces can be omitted.
 
-    // Arrays can be written with () instead of []. In a () context, quoted
-    // strings are surrounded by the quote macro (null).
-    (print (str "The meaning of life is " (* 6 7)))
+$schema: "http://adam.nels.onl/schema/jaspr/module"
 
-    // Commas are allowed in lists, but can be omitted.
-    (for-each (λx print x) '["foo", "bar", "baz"]))
-}
+$module: test   ; Strings don't require quotes if unambiguous
+
+$doc: ““Smart quotes” are supported, and they nest!”
+
+$main:
+  (seq
+    ;; Arrays can be written with () instead of []. In a () context, quoted
+    ;; strings are surrounded by the quote macro (the empty string).
+    (print “The meaning of life is ” (* 6 7))
+
+    ;; Commas are allowed in lists, but can be omitted.
+    (for-each (λx print x) '[“foo”, “bar”, “baz”]))
+
 ```
 
 **JSON:**
 
 ```json
 {
-  "jaspr": "0.0.91",
-  "module": "test",
-  "run": ["seq",
-    ["print", ["str", [null, "The meaning of life is "], ["*", 6, 7]]],
-    ["for-each", ["λx", "print", "x"], [null, ["foo", "bar", "baz"]]]]
+  "$schema": "http://adam.nels.onl/schema/jaspr/module",
+  "$module": "test",
+  "$doc": "“Smart quotes” are supported, and they nest!",
+  "$main": ["seq",
+    ["print", ["", "The meaning of life is "], ["*", 6, 7]],
+    ["for-each", ["λx", "print", "x"], ["", ["foo", "bar", "baz"]]]]
 }
 ```
 
@@ -103,19 +130,19 @@ quoted to be literal. Numbers, booleans, nulls and objects evaluate as
 themselves, although the values of an object are evaluated as code unless the
 object is quoted.
 
-Closures in Jaspr are objects with `⚙scope` keys. Closures are slightly magic;
+Closures in Jaspr are objects with `$closure` keys. Closures are slightly magic;
 a closure's scope can contain self-references, unlike all other Jaspr values.
 To keep cyclical values from leaking into other parts of the program, the
-`⚙scope` key cannot be directly accessed or converted to JSON.
+`$closure` key cannot be directly accessed or converted to JSON.
 
-Functions are closures with a `fn` key. A function is executed when it is the
+Functions are closures with a `$code` key. A function is executed when it is the
 first element of an evaluated list. The code it contains is evaluated in the
-closure's scope, with the call's arguments accessible via the `⚙args` variable.
+closure's scope, with the call's arguments accessible via the `$args` variable.
 
-`null` is the quote macro, and `true`/`false` form a quasiquote/unquote macro.
-These shouldn't be used directly in Jaspr syntax, because standard Lisp quoting
-syntax is available instead. Numbers and strings are indexing functions, a la
-Clojure.
+The empty string is the quote macro, and `$syntax-quote`/`$unquote` form a
+quasiquote/unquote macro. These shouldn't be used directly in Jaspr syntax,
+because standard Lisp quoting syntax is available instead. Numbers and strings
+are indexing functions, a la Clojure.
 
 The arguments of a function call and the values of an object literal are always
 evaluated asynchronously, with no guaranteed ordering. To force a sequence of

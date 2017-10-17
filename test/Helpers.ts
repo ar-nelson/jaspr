@@ -1,4 +1,7 @@
-import {Jaspr, JasprArray, JasprObject, Callback, resolveFully, toString, Deferred} from '../src/Jaspr'
+import {
+  Jaspr, JasprArray, JasprObject, Scope, Callback, resolveFully, toString,
+  Deferred, currentSchema
+} from '../src/Jaspr'
 import Proc from '../src/Proc'
 import Interpreter from '../src/Interpreter'
 import {Context} from '../src/Interpreter'
@@ -82,30 +85,28 @@ function expectContext(fn: (ctx: Context, cb: Callback) => void): Expect {
 }
 
 export const expect = {
-  eval(scope: JasprObject, code: Jaspr): Expect {
-    return expectContext((ctx, cb) => waitFor(ctx.eval(scope, {}, code), cb))
+  eval(scope: Scope, code: Jaspr): Expect {
+    return expectContext((ctx, cb) => waitFor(ctx.eval(scope, code), cb))
   },
-  macroExpand(macroscope: JasprObject, code: Jaspr): Expect {
-    return expectContext((ctx, cb) => waitFor(ctx.macroExpand(macroscope, code), cb))
+  macroExpand(scope: Scope, code: Jaspr): Expect {
+    return expectContext((ctx, cb) => waitFor(ctx.macroExpand(scope, code), cb))
   },
-  fullEval(scope: JasprObject, macroscope: JasprObject, code: Jaspr): Expect {
+  fullEval(scope: Scope, code: Jaspr): Expect {
     return expectContext((ctx, cb) =>
-      waitFor(ctx.macroExpand(macroscope, code), expanded => {
-        waitFor(ctx.eval(scope, macroscope, expanded), cb)
+      waitFor(ctx.macroExpand(scope, code), expanded => {
+        waitFor(ctx.eval(scope, expanded), cb)
       }))
   }
 }
 
 export function withModule(
   module: JasprObject,
-  fn: (scope: JasprObject, macroscope: JasprObject) => (done: () => void) => void
+  fn: (scope: Scope) => (done: () => void) => void
 ): TestCase {
-  return expectContext((ctx, cb) => ctx.evalModule(module, (err, m) => {
-    if (err) throw err
-    else cb(<any>m)
-  })).toPass(
-    <any>(({scope, macroscope}: Dictionary<JasprObject>, done: () => void) =>
-      fn(scope, macroscope)(done)))
+  return expectContext((ctx, cb) => ctx.evalModule(
+    _.merge({$schema: currentSchema}, module),
+    (err, m) => { if (err) throw err; else cb(<any>m)}
+  )).toPass(<any>((scope: Scope, done: () => void) => fn(scope)(done)))
 }
 
 export function cases(cs: {[name: string]: TestCase}): (done: () => void) => void {

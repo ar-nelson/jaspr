@@ -1,5 +1,8 @@
 import * as _ from 'lodash'
 import * as async from 'async'
+import {magicPrefix, reservedChars} from './Parse'
+
+export const currentSchema = "http://adam.nels.onl/schema/jaspr/module"
 
 /** 
  * JSON data consists of `null`, booleans, numbers, strings, arrays, and objects.
@@ -22,15 +25,25 @@ export type Jaspr = null | boolean | number | string | JasprArray | JasprObject
 export interface JasprArray extends Array<Jaspr | Deferred> {}
 /** An object containing only Jaspr values */
 export interface JasprObject { [key: string]: Jaspr | Deferred }
+
+export interface Scope extends JasprObject {
+  value: JasprObject
+  macro: JasprObject
+  check: JasprObject
+  test: JasprObject
+  doc: { [name: string]: string }
+  qualified: { [name: string]: string }
+}
+export const emptyScope: Scope =
+  {value: {}, macro: {}, check: {}, doc: {}, test: {}, qualified: {}}
+
 /** 
- * A closure, with magic `⚙scope` and `⚙macros` properties containing the
- * closed-over lexical context. If it is an executable closure (a function), it
- * will also have a `fn` property containing the executable Jaspr code of the
- * function.
+ * A closure, with magic `$closure` property containing the closed-over lexical
+ * context. If it is an executable closure (a function), it will also have a
+ * `$code` property containing the executable Jaspr code of the function.
  */
 export interface JasprClosure extends JasprObject {
-  "⚙scope": JasprObject,
-  "⚙macros": JasprObject
+  "$closure": Scope
 }
 
 export type Callback = (x: Jaspr) => void
@@ -83,12 +96,10 @@ export class Deferred {
   }
 }
 
-/** The prefix of all built-in "magic" names in Jaspr */
-export const magicPrefix = "⚙"
 /** The name of the property that stores a closure's lexical scope */
-export const scopeKey = magicPrefix + "scope"
-/** The name of the property that stores a closure's macro scope */
-export const macroscopeKey = magicPrefix + "macros"
+export const scopeKey = magicPrefix + "closure"
+/** The name of the property that stores a closure's executable code */
+export const codeKey = magicPrefix + "code"
 /** The name of the variable containing the most recent function call's arguments */
 export const argsKey = magicPrefix + "args"
 
@@ -97,8 +108,7 @@ export function isObject(it: Jaspr): it is JasprObject {
   return _.isPlainObject(it)
 }
 export function isClosure(it: Jaspr): it is JasprClosure {
-  return isObject(it) &&
-    (it.hasOwnProperty(scopeKey) || it.hasOwnProperty(macroscopeKey))
+  return isObject(it) && it.hasOwnProperty(scopeKey)
 }
 export function toBool(a: Jaspr): boolean {
   if (typeof a === 'boolean') return a
@@ -151,7 +161,7 @@ export function resolveFully(x: Jaspr, cb: ErrCallback, jsonOnly = false): void 
   } else if (isObject(x)) {
     resolveObject(x, xs => async.eachOf(xs,
       (x: Jaspr, k: string, ecb: ErrorCallback<JasprObject | null>) => {
-        if (k === scopeKey || x === macroscopeKey) ecb(null)
+        if (k === scopeKey) ecb(null)
         else resolveFully(x, ecb, jsonOnly)
       }, () => cb(null, xs)))
   } else cb(null, x)
@@ -159,6 +169,20 @@ export function resolveFully(x: Jaspr, cb: ErrCallback, jsonOnly = false): void 
 
 export function toJson(x: Jaspr, cb: (err: JasprObject | null, json: Json) => void): void {
   return resolveFully(x, cb, true)
+}
+
+function quoteString(str: string): string {
+  let out = '“'
+  for (let c of str) switch (c) {
+    case '\n': out += '\\n'; break
+    case '\r': out += '\\r'; break
+    case '\f': out += '\\f'; break
+    case '\v': out += '\\v'; break
+    case '“': out += '\\“'; break
+    case '”': out += '\\”'; break
+    default: out += c
+  }
+  return out + '”'
 }
 
 export function toString(it: Jaspr, bareString = false): string {
@@ -169,9 +193,10 @@ export function toString(it: Jaspr, bareString = false): string {
   } else if (isArray(it)) {
     return `[${_.join(it.map(x => toString(<Jaspr>x)), ', ')}]`
   } else if (typeof it === 'string') {
-    if (!bareString && /[()\[\]{},:"\s]|(\/\/)|(\/\*)|(\*\/)/.test(it)) {
-      return JSON.stringify(it)
-    } else return it
+    if (bareString) return it
+    for (let c of it) if (reservedChars.has(it)) return quoteString(it)
+    if (it !== it.normalize('NFKC')) return quoteString(it)
+    return it
   } else {
     return "" + it
   }

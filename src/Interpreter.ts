@@ -3,10 +3,11 @@ import * as _ from 'lodash'
 import * as async from 'async'
 import Proc from './Proc'
 import {Fiber, FiberInfo} from './Proc'
+import {magicPrefix} from './Parse'
 import {
-  Jaspr, JasprArray, JasprObject, JasprClosure, isArray, isObject, isClosure,
-  Deferred, Callback, getIndex, getKey, magicPrefix, scopeKey, macroscopeKey,
-  argsKey, resolveArray, resolveObject, resolveFully, toString, toBool
+  Jaspr, JasprArray, JasprObject, JasprClosure, Scope, isArray, isObject,
+  isClosure, Deferred, Callback, getIndex, getKey, scopeKey, codeKey, argsKey,
+  resolveArray, resolveObject, resolveFully, toString, toBool, emptyScope
 } from './Jaspr'
 
 export default class Interpreter {
@@ -21,35 +22,6 @@ export default class Interpreter {
     this.procs.add(proc)
     return new InterpreterContext(proc, this)
   }
-
-  /*printFibers() {
-    for (let proc of this.procs) {
-      console.log(`Proc: ${proc.name}\n---\n`)
-      const fibers = new Map<Fiber, number>()
-      let i = 0
-      for (let fiber of proc.fibers) fibers.set(fiber, i++)
-      function toDebugString(it: Jaspr | Deferred): string {
-        if (it instanceof Deferred) {
-          if (it.value !== undefined) return toDebugString(it.value)
-          else if (fibers.has(<Fiber>it)) return `<${fibers.get(<Fiber>it)}>`
-          else return it.toString()
-        } else if (isArray(it)) {
-          return `[${_.join(it.map(toDebugString), ', ')}]`
-        } else if (isObject(it)) {
-          if (isClosure(it)) return "(closure)"
-          return `{${_.join(Object.keys(it).map(k =>
-            `${toString(k)}: ${toDebugString(it[k])}`), ', ')}}`
-        } else return toString(it)
-      }
-      for (let [fiber, i] of fibers) {
-        console.log(`<${i}> ${fiber.typeString()}`)
-        if (fiber.debugData !== undefined) {
-          console.log(toDebugString(fiber.debugData))
-        }
-        console.log('')
-      }
-    }
-  }*/
 }
 
 function waitFor(v: Jaspr | Deferred, cb: Callback): void {
@@ -60,23 +32,24 @@ function waitFor(v: Jaspr | Deferred, cb: Callback): void {
 export interface Context {
   proc(): Proc
   fiber(info?: FiberInfo, fn?: (cb: Callback, fiber: Fiber) => void): Fiber
-  macroExpand(macros: JasprObject, code: Jaspr): Jaspr | Deferred
-  eval(scope: JasprObject, macros: JasprObject, code: Jaspr): Jaspr | Deferred
+  macroExpand(scope: Scope, code: Jaspr): Jaspr | Deferred
+  eval(scope: Scope, code: Jaspr): Jaspr | Deferred
   call(callee: Jaspr, args: JasprArray, fiber: Fiber, cb: Callback): void
   evalModule(
     module: JasprObject,
     cb: (err: {err: string, module: JasprObject} | null, m?: Module) => void,
-    evalScope?: JasprObject,
-    evalMacros?: JasprObject
+    evalScope?: Scope
   ): void
   //spawn(scope: JasprObject, macros: JasprObject, code: Jaspr): Proc
 }
 
-export interface Module {
-  name: string,
-  scope: JasprObject,
-  macroscope: JasprObject
-  exports: string[]
+export interface Module extends Scope {
+  $schema: string
+  $module: string | null
+  $doc: string | null
+  $author: string | null
+  $main: Jaspr
+  $export: { [exportedName: string]: string }
 }
 
 class InterpreterContext implements Context {
@@ -95,31 +68,31 @@ class InterpreterContext implements Context {
   }
   error(err: Jaspr, cb: Callback): boolean { return this._proc.error(err, cb) }
 
-  macroExpandTop(macros: JasprObject, code: Jaspr, fiber: Fiber, cb: Callback): void {
+  macroExpandTop(scope: Scope, code: Jaspr, fiber: Fiber, cb: Callback): void {
     if (isArray(code)) {
       if (code.length === 0) cb(code)
       else getIndex(0, code, (err, fn) => {
-        if (fn === true) {
+        if (fn === magicPrefix + 'syntax-quote') {
           if (code.length === 2) {
             getIndex(1, code, (err, x) => syntaxQuote(x, (err, y) => {
               if (err) fiber.error(err)
-              else this.macroExpandTop(macros, <Jaspr>y,
-                fiber.replace(new FiberInfo.MacroExpand(<Jaspr>y, macros)),
+              else this.macroExpandTop(scope, <Jaspr>y,
+                fiber.replace(new FiberInfo.MacroExpand(<Jaspr>y, scope)),
                 cb)
             }))
           } else fiber.error({
-            err: `true (syntax quote) takes 1 argument, got ${code.length - 1}`,
+            err: `${magicPrefix}syntax-quote takes 1 argument, got ${code.length - 1}`,
             code
           })
-        } else if (typeof fn === 'string' && macros[fn] !== undefined) {
-          getKey(fn, macros, (err, macro) => {
+        } else if (typeof fn === 'string' && scope.macro[fn] !== undefined) {
+          getKey(fn, scope.macro, (err, macro) => {
             const args = code.slice(1)
             this.fiber(
               new FiberInfo.Call(macro, args),
               (cb, fiber) => this.call(macro, args, fiber, cb)
             ).await(expanded =>
-              this.macroExpandTop(macros, expanded, 
-                fiber.replace(new FiberInfo.MacroExpand(expanded, macros)),
+              this.macroExpandTop(scope, expanded, 
+                fiber.replace(new FiberInfo.MacroExpand(expanded, scope)),
                 cb))
           })
         } else cb(code)
@@ -127,20 +100,20 @@ class InterpreterContext implements Context {
     } else cb(code)
   }
 
-  macroExpand(macros: JasprObject, code: Jaspr): Jaspr | Fiber {
+  macroExpand(scope: Scope, code: Jaspr): Jaspr | Fiber {
     const reexpand = (it: Jaspr | Deferred, k: number | string): Jaspr | Fiber => {
-      if (k === scopeKey || k === macroscopeKey) return <Jaspr|Fiber>it
+      if (k === scopeKey) return <Jaspr|Fiber>it
       else if (it instanceof Deferred) {
-        return this.fiber(new FiberInfo.MacroExpand(<Fiber>it, macros),
-          cb => it.await(v => waitFor(this.macroExpand(macros, v), cb)))
-      } else return this.macroExpand(macros, it)
+        return this.fiber(new FiberInfo.MacroExpand(<Fiber>it, scope),
+          cb => it.await(v => waitFor(this.macroExpand(scope, v), cb)))
+      } else return this.macroExpand(scope, it)
     }
-    if (isArray(code) && code.length > 0 && !(code.length === 2 && code[0] === null)) {
-      return this.fiber(new FiberInfo.MacroExpand(code, macros), (cb, fiber) =>
-        this.macroExpandTop(macros, code, fiber, expanded => {
+    if (isArray(code) && code.length > 0 && !(code.length === 2 && code[0] === '')) {
+      return this.fiber(new FiberInfo.MacroExpand(code, scope), (cb, fiber) =>
+        this.macroExpandTop(scope, code, fiber, expanded => {
           if (isArray(expanded) && 
               expanded.length > 0 &&
-              !(expanded.length === 2 && expanded[0] === null)) {
+              !(expanded.length === 2 && expanded[0] === '')) {
             getIndex(0, expanded, (err, fn) => {
               if (fn === null) cb(expanded)
               else cb(expanded.map(reexpand))
@@ -156,9 +129,12 @@ class InterpreterContext implements Context {
 
   call(callee: Jaspr, args: JasprArray, fiber: Fiber, cb: Callback): void {
     if (isClosure(callee)) {
-      if (callee.hasOwnProperty("fn")) {
-        resolveObject(callee, ({fn, [scopeKey]: scope, [macroscopeKey]: macroscope}) =>
-          waitFor(this.eval(_.create(scope, {[argsKey]: args}), macroscope, fn), cb))
+      if (callee.hasOwnProperty(codeKey)) {
+        resolveObject(callee, ({[codeKey]: code, [scopeKey]: scope}) => {
+          const newScope: Scope =
+            _.create(scope, {value: _.create(scope.value, {[argsKey]: args})})
+          waitFor(this.eval(newScope, code), cb)
+        })
       } else {
         fiber.error({err: "closure has no code", callee, args})
       }
@@ -187,7 +163,7 @@ class InterpreterContext implements Context {
         })
       }
     } else if (typeof(callee) === "string") {
-      if (callee === scopeKey || callee === macroscopeKey) {
+      if (callee === scopeKey) {
         fiber.error({err: `cannot access "${callee}" directly`})
       } else if (args.length !== 1) {
         fiber.error({err: `index takes 1 argument, got ${args.length}`, index: callee})
@@ -205,16 +181,16 @@ class InterpreterContext implements Context {
     } else fiber.error({err: "not callable", callee, args})
   }
 
-  eval(scope: JasprObject, macros: JasprObject, code: Jaspr): Jaspr | Fiber {
+  eval(scope: Scope, code: Jaspr): Jaspr | Fiber {
     const reeval = (it: Jaspr | Deferred, k: number | string): Jaspr | Fiber => {
-      if (k === scopeKey || k === macroscopeKey) return <Jaspr|Fiber>it
+      if (k === scopeKey) return <Jaspr|Fiber>it
       else if (it instanceof Deferred) {
         return this.fiber(new FiberInfo.Eval(<Fiber>it, scope),
-          cb => it.await(v => waitFor(this.eval(scope, macros, v), cb)))
-      } else return this.eval(scope, macros, it)
+          cb => it.await(v => waitFor(this.eval(scope, v), cb)))
+      } else return this.eval(scope, it)
     }
     if (typeof code === "string") {
-      const variable = scope[code]
+      const variable = scope.value[code]
       if (variable === undefined) {
         return this.fiber().error({err: 'no binding for name', name: code})
       } else return <Jaspr|Fiber>variable
@@ -222,24 +198,11 @@ class InterpreterContext implements Context {
       new FiberInfo.Eval(code, scope),
       (cb, fiber) => getIndex(0, code, (err, fn) => {
 
-        // null: quote
-        if (fn === null) {
+        // empty string: quote
+        if (fn === '') {
           if (code.length === 2) getIndex(1, code, (err, x) => cb(x))
           else fiber.error({
-            err: `null (quote) takes 1 argument, got ${code.length - 1}`,
-            code
-          })
-        }
-
-        // true/false: syntax quote
-        else if (fn === true) {
-          fiber.error({
-            err: "syntax quote (true) cannot be evaluated; must be macroexpanded",
-            code
-          })
-        } else if (fn === false) {
-          fiber.error({
-            err: "unquote (~, false) can only occur inside syntax quote (`, true)",
+            err: `empty string (quote) takes 1 argument, got ${code.length - 1}`,
             code
           })
         }
@@ -252,26 +215,29 @@ class InterpreterContext implements Context {
             if (code.length !== 4) fiber.error(
               {err: 'if takes exactly 3 arguments', code})
             resolveArray(code, form =>
-              waitFor(this.eval(scope, macros, form[1]), b => {
+              waitFor(this.eval(scope, form[1]), b => {
                 const branch = form[toBool(b) ? 2 : 3]
                 // TODO: This is a tail call, and should replace the current fiber
-                waitFor(this.eval(scope, macros, branch), cb)
+                waitFor(this.eval(scope, branch), cb)
               }))
             break
           case "closure":
             if (code.length !== 4) fiber.error(
               {err: 'closure takes exactly 3 arguments', code})
-            resolveArray(code, ([closure, defs, fn, fields]) => {
+            resolveArray(code, ([closure, defs, code, fields]) => {
               if (!isObject(defs)) {
                 fiber.error({err: 'closure scope must be an object', code})
               } else if (!isObject(fields)) {
                 fiber.error({err: 'closure fields must be an object', code})
               } else {
-                const {scope: s, macroscope: m} = this.evalDefs(scope, macros, defs)
+                const {value, macro, check} = this.evalDefs(scope, defs)
                 cb(_.merge({
-                  [scopeKey]: _.create(scope, s),
-                  [macroscopeKey]: _.create(macros, m),
-                  fn
+                  [scopeKey]: _.create(scope, {
+                    value: _.isEmpty(value) ? scope.value : _.create(scope.value, value),
+                    macro: _.isEmpty(macro) ? scope.macro : _.create(scope.macro, macro),
+                    check: _.isEmpty(check) ? scope.check : _.create(scope.check, check)
+                  }),
+                  [codeKey]: code
                 }, fields))
               }
             })
@@ -280,10 +246,10 @@ class InterpreterContext implements Context {
             if (code.length !== 2) fiber.error(
               {err: 'macroget takes exactly 1 argument', code})
             getIndex(1, code, (err, v) =>
-              waitFor(this.eval(scope, macros, v), v => {
+              waitFor(this.eval(scope, v), v => {
                 if (typeof v !== 'string') fiber.error(
                   {err: 'macroget argument must be a string', args: [v]})
-                else getKey(v, macros, (err, macro) => {
+                else getKey(v, scope.macro, (err, macro) => {
                   if (err) fiber.error({err: 'macro not defined', macro})
                   else cb(macro)
                 })
@@ -293,12 +259,19 @@ class InterpreterContext implements Context {
             if (code.length !== 2) fiber.error(
               {err: 'macroexpand takes exactly 1 argument', code})
             getIndex(1, code, (err, v) =>
-              waitFor(this.eval(scope, macros, v), v =>
-                waitFor(this.macroExpand(macros, v), cb)))
+              waitFor(this.eval(scope, v), v =>
+                waitFor(this.macroExpand(scope, v), cb)))
+            break
+          case "syntax-quote":
+            fiber.error({err: 'syntax-quote cannot be evaluated, must be macroexpanded', code})
+            break
+          case "unquote":
+          case "unquote-splicing":
+            fiber.error({err: 'unquote cannot occur outside syntax-quote', code})
             break
           default: if (magicFns.hasOwnProperty(magic)) {
             resolveArray(code, form => resolveArray(
-              form.slice(1).map(arg => this.eval(scope, macros, arg)),
+              form.slice(1).map(arg => this.eval(scope, arg)),
               args => {
                 try { magicFns[magic](this, args, cb) } catch (ex) {
                   if (ex instanceof Error) {
@@ -317,7 +290,7 @@ class InterpreterContext implements Context {
 
         // all other calls: functions and indexes
         else {
-          waitFor(this.eval(scope, macros, fn), efn => {
+          waitFor(this.eval(scope, fn), efn => {
             const args = code.slice(1).map(reeval)
             this.call(efn, args, fiber.replace(new FiberInfo.Call(efn, args)), cb)
           })
@@ -330,58 +303,122 @@ class InterpreterContext implements Context {
     } else return code
   }
   
-  evalDefs(
-    evalScope: JasprObject, evalMacros: JasprObject, defs: JasprObject
-  ): {scope: JasprObject, macroscope: JasprObject} {
-    let scope: JasprObject, macroscope: JasprObject
-    const scopeDefs: JasprObject =
-      _.omitBy(defs, (v, k) => typeof k !== 'string' ||  /\./.test(k))
-    const macroDefs: JasprObject =
-      _.mapKeys(
-        _.pickBy<JasprObject, JasprObject>(defs, (v, k) => _.startsWith(k, 'macro.')),
-        (v: Jaspr, k: string) => k.substring(6))
-    const evalEntry = (code: Jaspr, name: string): Fiber => {
-      return this.fiber(FiberInfo.def(name), cb => setImmediate(() => {
-        const localMacros = _.create(evalMacros, macroscope)
-        const localScope = _.create(evalScope, scope)
-        waitFor(this.macroExpand(localMacros, code), expanded =>
-          waitFor(this.eval(localScope, localMacros, expanded), cb))
-      }))
+  evalDefs(evalScope: Scope, defs: JasprObject, module?: string): Scope {
+    function suffix(k: string) {
+      const dotIndex = k.lastIndexOf('.')
+      if (dotIndex < 0) return k
+      else return k.slice(dotIndex + 1)
     }
-    scope = _.mapValues(scopeDefs, evalEntry)
-    macroscope = _.mapValues(macroDefs, evalEntry)
-    return {scope, macroscope}
+    const defsByPrefix = _(defs).keys()
+      .reject(k => _.startsWith(k, magicPrefix))
+      .groupBy(key => {
+        const dotIndex = key.lastIndexOf('.')
+        if (dotIndex < 0) return 'value'
+        const prefix = key.slice(0, dotIndex)
+        if (prefix.indexOf('.') !== -1 && !topLevelPrefixes.has(prefix)) {
+          // TODO: Throw this error in Jaspr, not JS
+          throw new Error('Not a legal top-level prefix: ' + prefix)
+        }
+        return prefix
+      }).value()
+    let scope: Scope
+    const scopePromise = new Promise<Scope>(resolve => setImmediate(() => resolve({
+      value: _.create(evalScope.value, scope.value),
+      macro: _.create(evalScope.macro, scope.macro),
+      check: _.create(evalScope.check, scope.check),
+      doc: _.create(evalScope.doc, scope.doc),
+      test: _.create(evalScope.test, scope.test),
+      qualified: _.create(evalScope.qualified, scope.qualified),
+    })))
+    const evalEntry = (code: Jaspr | Deferred, name: string): Fiber =>
+      this.fiber(FiberInfo.def(name), (cb, fiber) =>
+        scopePromise.then(scope =>
+          waitFor(code, code =>
+            waitFor(this.macroExpand(scope, code), expanded =>
+              waitFor(this.eval(scope, expanded), cb))),
+          err => fiber.error(<any>fiber)))
+    scope = _.merge({value: {}, macro: {}, check: {}, doc: {}, test: {},
+        qualified: module
+          ? _(defs).omitBy(k => _.startsWith(k, magicPrefix))
+                   .mapKeys((v: Jaspr, k: string) => suffix(k))
+                   .mapValues((v: Jaspr, k: string) => module + '.' + k)
+                   .value()
+          : {}},
+      _.mapValues(defsByPrefix, (ks, prefix) => {
+        if (prefix === 'doc') return _.fromPairs(ks.map(k => {
+          if (typeof defs[k] === 'string') return [suffix(k), defs[k]]
+          else {
+            // TODO: Throw this error in Jaspr, not JS
+            throw new Error(`${k} must be a literal string; got something else`)
+          }
+        }))
+        else return _.fromPairs(ks.map(k => [suffix(k), evalEntry(defs[k], k)]))
+      }))
+    return scope
   }
   
   evalModule(
     module: JasprObject,
     cb: (err: {err: string, module: JasprObject} | null, m?: Module) => void,
-    evalScope: JasprObject = {},
-    evalMacros: JasprObject = {}
+    evalScope: Scope = emptyScope
   ): void {
-    resolveObject(module, ({
-      module: name,
-      "export": export_=null,
-      exports: exports=export_,
-      defs
-    }) => {
-      if (typeof name !== 'string') {
-        cb({err: 'module name must be a string', module})
-      } else if (!isArray(exports)) {
-        cb({err: 'module exports must be an array', module})
-      } else if (!isObject(defs)) {
-        cb({err: 'module defs must be an object', module})
-      } else resolveArray(exports, exports => {
-        if (_.every(exports, _.isString)) {
-          const {scope, macroscope} = this.evalDefs(evalScope, evalMacros, defs)
-          cb(null, {name, scope, macroscope, exports: <string[]>exports})
-        } else {
-          cb({err: 'module exports must contain only strings', module})
-        }
-      })
+    resolveObject(module, m => {
+      const {$schema, $module, $export, $doc, $author} = m
+      if (typeof $schema !== 'string') {
+        cb({err: 'module.$schema must be a string', module})
+      } else if (typeof $module !== 'string') {
+        cb({err: 'module.$module must be a string', module})
+      } else if ($doc != null && typeof $doc !== 'string') {
+        cb({err: 'module.$doc must be a string', module})
+      } else if ($author != null && typeof $author !== 'string') {
+        cb({err: 'module.$author must be a string', module})
+      } else {
+        resolveFully($export || {}, (err, exports) => {
+          if (err) return cb(<any>err)
+          if (isArray(exports)) {
+            if (!_.every(exports, _.isString)) {
+              return cb({err: 'module.$export must contain only strings', module})
+            }
+            exports = _.fromPairs(exports.map(k => [k, k]))
+          }
+          if (!isObject(exports)) {
+            return cb({err: `module.$export must be an array or object, got ${exports}`, module})
+          }
+          const out = this.evalDefs(evalScope, m, $module)
+          for (let k in exports) {
+            if (k.indexOf('.') < 0 && !k.startsWith(magicPrefix)) {
+              const v = exports[k]
+              if (typeof v !== 'string') {
+                return cb({err: 'module.$export values must be strings', module})
+              }
+              if (!out.value.hasOwnProperty(v) && !out.macro.hasOwnProperty(v)) {
+                return cb({err: `exported name not defined: ${v}`, module})
+              }
+            } else return cb({err: `illegal export name: ${k}`, module})
+          }
+          const $export = <{ [exportedName: string]: string }>exports
+          function makeExports<T>(sc: {[k: string]: T}) {
+            const sc2 = _.mapValues($export, k => sc[k])
+            return _.merge(sc2, _.mapKeys(sc2, (v, k) => $module + "." + k))
+          }
+          cb(null, {
+            $schema, $module, $export,
+            $doc: $doc || null, $author: $author || null,
+            $main: null, // TODO: Support scripts
+            value: makeExports(out.value),
+            macro: makeExports(out.macro),
+            check: makeExports(out.check),
+            doc: makeExports(out.doc),
+            test: out.test,
+            qualified: _.fromPairs(_.keys($export).map(k => [k, $module + '.' + k])),
+          })
+        }, true)
+      }
     })
   }
 }
+
+export const topLevelPrefixes = new Set(['value', 'macro', 'check', 'doc', 'test'])
 
 function innerSyntaxQuote(
   code: Jaspr, cb: (err: JasprObject | null, value: Jaspr, isFlattened: boolean) => void
@@ -389,12 +426,16 @@ function innerSyntaxQuote(
   const fail = (err: string) => cb({err, code}, null, false)
   if (isArray(code) && code.length > 0) {
     getIndex(0, code, (err, fn) => {
-      if (fn === null || fn === true) return cb(null, [null, code], false)
+      if (fn === '' || fn === magicPrefix + 'syntax-quote') {
+        return cb(null, ['', code], false)
+      }
       resolveArray(code, xs => {
-        if (fn === false) {
+        if (fn === magicPrefix + 'unquote') {
           if (xs.length === 2) cb(null, xs[1], false)
-          else if (xs.length === 3 && isArray(xs[1]) && _.isEmpty(xs[1])) cb(null, xs[2], true)
-          else fail('illegal usage of [false ...] in syntax-quote')
+          else fail('unquote takes exactly 1 argument')
+        } else if (fn === magicPrefix + 'unquote-splicing') {
+          if (xs.length === 2) cb(null, xs[1], true)
+          else fail('unquote-splicing takes exactly 1 argument')
         } else {
           let toConcat: Jaspr[] = [], currentArray: Jaspr[] = []
           async.eachSeries<Jaspr, JasprObject | null>(xs,
@@ -424,7 +465,7 @@ function innerSyntaxQuote(
       async.mapValues<Jaspr, Jaspr, JasprObject | null>(obj,
         (v, k, cb) => syntaxQuote(v, cb),
         (err, res) => cb(<JasprObject|null>err, <JasprObject>res, false)))
-  } else cb(null, [null, code], false)
+  } else cb(null, ['', code], false)
 }
 
 function syntaxQuote(code: Jaspr, cb: AsyncResultCallback<Jaspr, JasprObject | null>): void {
