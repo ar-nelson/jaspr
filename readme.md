@@ -17,7 +17,7 @@ Jaspr is:
   * All code already executes concurrently, but processes provide error handling and isolation
   * Processes pass messages using channels (think Go)
   * Mutable state is process-local, making parallelism easy
-* Extensive Unicode support
+* Unicode-friendly
   * Unquoted strings are normalized (NFKC)
   * Syntax supports smart quotes and exotic paren/bracket/brace characters
 * Implemented on top of JavaScript
@@ -28,7 +28,7 @@ $schema: “http://adam.nels.onl/schema/jaspr/module”
 $module: example
 $export: {fib, quicksort}
 
-doc.fib: “Computes the _n_th Fibonacci number.”
+doc.fib: “Computes the *n*th Fibonacci number.”
 fib:
   (fn 0 0
     | 1 1
@@ -40,18 +40,18 @@ doc.quicksort: “
 quicksort:
   (fn []  []
     | [x] [x]
-    | xs (let {
-            pivot: (-> xs len (div 2) floor),
-            y: (pivot xs),
-            choose:
-              (fn p x (let {
-                         k: (if (< x y) '<
-                                (> x y) '>
-                                (= x y) '=
-                                (throw {err: “cannot compare”, x, y}))
-                      } (update (λ cons x _) k p))),
-            parts: (reduce choose {<: [], =: [], >: []} xs)
-          } (++ (quicksort ('< parts)) ('= parts) (quicksort ('> parts)))))
+    | xs  (let {
+             pivot: (-> xs len (div 2) floor),
+             y: (pivot xs),
+             choose:
+               (fn p x (let {
+                          k: (if (< x y) '<
+                                 (> x y) '>
+                                 (= x y) '=
+                                 (throw {err: “cannot compare”, x, y}))
+                       } (update (λ cons x _) k p))),
+             parts: (reduce choose {<: [], =: [], >: []} xs)
+           } (++ (quicksort ('< parts)) ('= parts) (quicksort ('> parts)))))
 ```
 
 Jaspr is a personal project, and it's a long way from being usable. I took
@@ -94,7 +94,7 @@ and automatic quoting.
 
 $schema: "http://adam.nels.onl/schema/jaspr/module"
 
-$module: test   ; Strings don't require quotes if unambiguous
+$module: test ; Strings don't require quotes if unambiguous
 
 $doc: ““Smart quotes” are supported, and they nest!”
 
