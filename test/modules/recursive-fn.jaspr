@@ -1,0 +1,13 @@
+$schema: "http://adam.nels.onl/schema/jaspr/module"
+$module: jaspr-tests.recursive-fn
+
+factorial:
+($closure {}
+  ($if ($less (0 $args) 1)
+       1
+       ($multiply (0 $args) (factorial ($subtract (0 $args) 1))))
+  {})
+
+five-factorial: (factorial 5)
+
+$export: {factorial, five-factorial}

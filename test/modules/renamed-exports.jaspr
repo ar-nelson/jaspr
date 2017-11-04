@@ -1,0 +1,8 @@
+$schema: "http://adam.nels.onl/schema/jaspr/module"
+$module: jaspr-tests.renamed-exports
+
+a: 1
+b: 2
+c: 3
+
+$export: {one: a, two: b, uno: a, dos: b}

@@ -17,7 +17,7 @@
 			"type": "node",
       "request": "launch",
 			"program": "${workspaceRoot}/node_modules/mocha/bin/_mocha",
-			"args": ["--no-timeouts", "${workspaceRoot}/dist/test/test.js"],
+			"args": ["--no-timeouts", "${workspaceRoot}/dist/test/*Test.js"],
 			"stopOnEntry": false
     }
   ]

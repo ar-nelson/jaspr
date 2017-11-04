@@ -1,0 +1,5 @@
+$schema: "http://adam.nels.onl/schema/jaspr/module"
+$include: ["included.jaspr", "has-recursive-include.jaspr"]
+
+recursive-included: 'recursive-included-value
+$export: {recursive-included-value}

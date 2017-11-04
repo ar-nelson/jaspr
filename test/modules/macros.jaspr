@@ -1,0 +1,7 @@
+$schema: "http://adam.nels.onl/schema/jaspr/module"
+$module: jaspr-tests.macros
+
+macro.quote: ($closure {} ([] "" (0 $args)) {})
+quoted: (quote quoted-value)
+
+$export: {quote, quoted}

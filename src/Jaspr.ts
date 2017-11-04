@@ -1,8 +1,7 @@
 import * as _ from 'lodash'
 import * as async from 'async'
-import {magicPrefix, reservedChars} from './Parse'
-
-export const currentSchema = "http://adam.nels.onl/schema/jaspr/module"
+import {closure as closureKey} from './ReservedNames'
+import {reservedChar} from './Parser'
 
 /** 
  * JSON data consists of `null`, booleans, numbers, strings, arrays, and objects.
@@ -43,7 +42,7 @@ export const emptyScope: Scope =
  * `$code` property containing the executable Jaspr code of the function.
  */
 export interface JasprClosure extends JasprObject {
-  "$closure": Scope
+  '$closure': Scope
 }
 
 export type Callback = (x: Jaspr) => void
@@ -96,19 +95,12 @@ export class Deferred {
   }
 }
 
-/** The name of the property that stores a closure's lexical scope */
-export const scopeKey = magicPrefix + "closure"
-/** The name of the property that stores a closure's executable code */
-export const codeKey = magicPrefix + "code"
-/** The name of the variable containing the most recent function call's arguments */
-export const argsKey = magicPrefix + "args"
-
 export const isArray: (it: Jaspr) => it is JasprArray = Array.isArray
 export function isObject(it: Jaspr): it is JasprObject {
   return _.isPlainObject(it)
 }
 export function isClosure(it: Jaspr): it is JasprClosure {
-  return isObject(it) && it.hasOwnProperty(scopeKey)
+  return isObject(it) && Object.prototype.hasOwnProperty.call(it, closureKey)
 }
 export function toBool(a: Jaspr): boolean {
   if (typeof a === 'boolean') return a
@@ -151,19 +143,18 @@ export function resolveObject(object: JasprObject, cb: (x: {[k: string]: Jaspr})
   }, () => cb(<{[k: string]: Jaspr}>object))
 }
 
-export function resolveFully(x: Jaspr, cb: ErrCallback, jsonOnly = false): void {
+export function resolveFully(x: Jaspr, cb: ErrCallback, jsonOnly = false, history: Jaspr[] = []): void {
   if (isArray(x)) {
     resolveArray(x, xs => async.each(xs,
-      (x, cb: ErrCallback) => resolveFully(x, cb, jsonOnly),
+      (y, cb: ErrCallback) => resolveFully(y, cb, jsonOnly, history),
       () => cb(null, xs)))
   } else if (jsonOnly && isClosure(x)) {
     cb({err: "No JSON representation for closure", closure: x}, null)
   } else if (isObject(x)) {
-    resolveObject(x, xs => async.eachOf(xs,
-      (x: Jaspr, k: string, ecb: ErrorCallback<JasprObject | null>) => {
-        if (k === scopeKey) ecb(null)
-        else resolveFully(x, ecb, jsonOnly)
-      }, () => cb(null, xs)))
+    if (history.indexOf(x) > -1) cb(null, x)
+    resolveObject(x, xs => async.each(xs,
+      (y, cb: ErrCallback) => resolveFully(y, cb, jsonOnly, history.concat([x])),
+      () => cb(null, xs)))
   } else cb(null, x)
 }
 
@@ -180,12 +171,13 @@ function quoteString(str: string): string {
     case '\v': out += '\\v'; break
     case '“': out += '\\“'; break
     case '”': out += '\\”'; break
+    case '\\': out += '\\\\'; break
     default: out += c
   }
   return out + '”'
 }
 
-export function toString(it: Jaspr, bareString = false): string {
+export function toString(it: Jaspr, bareString = false, alwaysQuote = false): string {
   if (isClosure(it)) {
     return '(closure)'
   } else if (isObject(it)) {
@@ -194,10 +186,10 @@ export function toString(it: Jaspr, bareString = false): string {
     return `[${_.join(it.map(x => toString(<Jaspr>x)), ', ')}]`
   } else if (typeof it === 'string') {
     if (bareString) return it
-    for (let c of it) if (reservedChars.has(it)) return quoteString(it)
-    if (it !== it.normalize('NFKC')) return quoteString(it)
-    return it
+    if (alwaysQuote || it === '' || reservedChar.test(it) || it !== it.normalize('NFKC')) {
+      return quoteString(it)
+    } else return it
   } else {
-    return "" + it
+    return '' + it
   }
 }

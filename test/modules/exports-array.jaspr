@@ -1,0 +1,8 @@
+$schema: "http://adam.nels.onl/schema/jaspr/module"
+$module: jaspr-tests.exports-array
+
+a: 1
+b: 2
+c: 3
+
+$export: [a, b]

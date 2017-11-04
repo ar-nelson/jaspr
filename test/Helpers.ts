@@ -1,10 +1,10 @@
 import {
   Jaspr, JasprArray, JasprObject, Scope, Callback, resolveFully, toString,
-  Deferred, currentSchema
+  Deferred, JsonObject, emptyScope
 } from '../src/Jaspr'
-import Proc from '../src/Proc'
-import Interpreter from '../src/Interpreter'
-import {Context} from '../src/Interpreter'
+import Fiber from '../src/Fiber'
+//import {currentSchema, evalModule} from '../src/Module'
+import {Env, Action, evalExpr, macroExpand, evalDefs, deferExpandEval} from '../src/Interpreter'
 import * as _ from 'lodash'
 import * as assert from 'assert'
 import {expect as chaiExpect} from 'chai'
@@ -28,7 +28,7 @@ export class Expect {
 
   toEqual(value: Jaspr): TestCase {
     return (done, name?) => this.fn((err, result) => {
-      if (err === null) {
+      if (err == null) {
         if (name) {
           try { chaiExpect(result).to.deep.equal(value) }
           catch (e) {
@@ -36,8 +36,10 @@ export class Expect {
             throw e
           }
         } else chaiExpect(value).to.deep.equal(value)
-        done()
-      } else assert(false, (name ? `(in "${name}"): ` : '') + toString(err))
+      } else {
+        assert(false, (name ? `(in "${name}"): ` : '') + toString(err))
+      }
+      done()
     })
   }
 
@@ -49,8 +51,8 @@ export class Expect {
       } else {
         assert(predicate(err),
           `${name ? name + ': ' : ''}Expected error, but got the wrong kind: ${toString(err)}`)
-        done()
       }
+      done()
     })
   }
 
@@ -67,47 +69,57 @@ export class Expect {
   }
 }
 
-function expectContext(fn: (ctx: Context, cb: Callback) => void): Expect {
+function expectContext(fn: (env: Env, cb: Callback) => void): Expect {
   let errCb: TestCallback
-  const interpreter = new Interpreter()
-  const ctx = interpreter.spawn("test", undefined, (err, cb) => {
+  let errored = false
+  const root = Fiber.newRoot((root, err, cb) => {
+    if (errored) return cb(null)
+    errored = true
     resolveFully(err, (re, err) => errCb(err, null))
-    //interpreter.printFibers()
-    return false
+    // don't cancel; remaining fibers should crash on their own
   })
   return new Expect(cb => {
-    errCb = (err, v) => {
-      //if (err) interpreter.printFibers()
-      cb(err, v)
-    }
-    fn(ctx, result => resolveFully(result, cb))
+    errCb = cb
+    fn(root, result => resolveFully(result, cb))
   })
 }
 
 export const expect = {
   eval(scope: Scope, code: Jaspr): Expect {
-    return expectContext((ctx, cb) => waitFor(ctx.eval(scope, code), cb))
+    return expectContext((env, cb) => env.defer({
+      action: Action.Eval, code,
+      fn: (env, cb) => evalExpr(env, scope, code, cb)
+    }).await(cb))
   },
   macroExpand(scope: Scope, code: Jaspr): Expect {
-    return expectContext((ctx, cb) => waitFor(ctx.macroExpand(scope, code), cb))
+    return expectContext((env, cb) => env.defer({
+      action: Action.MacroExpand, code,
+      fn: (env, cb) => macroExpand(env, scope, code, cb)
+    }).await(cb))
   },
   fullEval(scope: Scope, code: Jaspr): Expect {
-    return expectContext((ctx, cb) =>
-      waitFor(ctx.macroExpand(scope, code), expanded => {
-        waitFor(ctx.eval(scope, expanded), cb)
-      }))
+    return expectContext((env, cb) => deferExpandEval(env, scope, code).await(cb))
   }
 }
 
-export function withModule(
-  module: JasprObject,
+export function withDefs(
+  defs: JsonObject,
   fn: (scope: Scope) => (done: () => void) => void
 ): TestCase {
-  return expectContext((ctx, cb) => ctx.evalModule(
-    _.merge({$schema: currentSchema}, module),
-    (err, m) => { if (err) throw err; else cb(<any>m)}
-  )).toPass(<any>((scope: Scope, done: () => void) => fn(scope)(done)))
+  return expectContext((env, cb) => cb(evalDefs(env, emptyScope, defs)))
+    .toPass(<any>((scope: Scope, done: () => void) => fn(scope)(done)))
 }
+
+/*
+export function withModule(
+  module: JsonObject,
+  fn: (scope: Scope) => (done: () => void) => void
+): TestCase {
+  return expectContext((env, cb) =>
+    cb(evalModule(env, _.merge({$schema: currentSchema}, module)))
+  ).toPass(<any>((scope: Scope, done: () => void) => fn(scope)(done)))
+}
+*/
 
 export function cases(cs: {[name: string]: TestCase}): (done: () => void) => void {
   return done => {

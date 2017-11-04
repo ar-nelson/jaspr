@@ -1,15 +1,16 @@
-import {expect, cases, withModule} from './Helpers'
+import {expect, cases, withDefs} from './Helpers'
 import {
-  Jaspr, JasprObject, JasprClosure, Scope, resolveFully, scopeKey, codeKey,
+  Jaspr, JasprObject, JasprClosure, JsonObject, Scope, resolveFully,
   isClosure, Deferred, emptyScope
 } from '../src/Jaspr'
+import * as Names from '../src/ReservedNames'
 import * as _ from 'lodash'
 import * as chai from 'chai'
 
 const sq = "$syntax-quote", uq = "$unquote", uqs = "$unquote-splicing"
 
-function closure(fn: Jaspr, scope=emptyScope): JasprClosure {
-  return <JasprClosure>{[codeKey]: fn, [scopeKey]: scope}
+function closure(fn: Jaspr, scope=emptyScope): JsonObject & JasprClosure {
+  return <any>{[Names.code]: fn, [Names.closure]: scope}
 }
 function values(value: JasprObject): Scope {
   return _.create(emptyScope, {value})
@@ -23,12 +24,13 @@ const macro_array_add1 =
   closure([[], [[], ['', 'add1'], [0, '$args']], [[], ['', 'add1'], [1, '$args']]])
 
 describe('eval', () => {
-  it('evaluates null, booleans, and numbers as themselves', cases({
+  it('evaluates null, booleans, numbers, and empty structures as themselves', cases({
     "null": expect.eval(emptyScope, null).toEqual(null),
     "true": expect.eval(emptyScope, true).toEqual(true),
     "false": expect.eval(emptyScope, false).toEqual(false),
     "0": expect.eval(emptyScope, 0).toEqual(0),
     "91": expect.eval(emptyScope, 91).toEqual(91),
+    "empty string": expect.eval(emptyScope, "").toEqual(""),
     "empty array": expect.eval(emptyScope, []).toEqual([]),
     "empty object": expect.eval(emptyScope, {}).toEqual({})
   }))
@@ -111,16 +113,16 @@ describe('eval', () => {
         expect.eval(values({a:1, b: 2}), ["$closure", {}, ["+", 1, 2], {}]).toPass(cl => {
           const {expect} = chai
           expect(cl).to.be.an('object')
-          expect(cl).to.have.property(scopeKey).be.an('object')
-          expect(cl).to.have.property(codeKey).deep.equal(["+", 1, 2])
-          const sc = (<any>cl)[scopeKey]
+          expect(cl).to.have.property(Names.closure).be.an('object')
+          expect(cl).to.have.property(Names.code).deep.equal(["+", 1, 2])
+          const sc = (<any>cl)[Names.closure]
           expect(sc).to.have.property('value').be.an('object')
           expect(sc.value).to.have.property('a').equal(1)
           expect(sc.value).to.have.property('b').equal(2)
         }),
       "extend parent scope":
         expect.eval(values({a: 1, b: 2}), ["$closure", {c: 3}, null, {}]).toPass(cl => {
-          const {expect} = chai, sc = (<any>cl)[scopeKey]
+          const {expect} = chai, sc = (<any>cl)[Names.closure]
           expect(sc).to.be.an('object')
           expect(sc).to.have.property('value').be.an('object')
           expect(sc.value).to.have.property('a').equal(1)
@@ -129,7 +131,7 @@ describe('eval', () => {
         }),
       "shadow binding in parent scope":
         expect.eval(values({a: 1, b: 2}), ["$closure", {a: 3}, null, {}]).toPass(cl => {
-          const {expect} = chai, sc = (<any>cl)[scopeKey]
+          const {expect} = chai, sc = (<any>cl)[Names.closure]
           expect(sc).to.be.an('object')
           expect(sc).to.have.property('value').be.an('object')
           expect(sc.value).to.have.property('a').not.equal(1) // won't be resolved...
@@ -148,11 +150,9 @@ describe('eval', () => {
     it('$divide', expect.eval(emptyScope, ["$divide", 6, 2]).toEqual(3))
     it('$modulus', expect.eval(emptyScope, ["$modulus", 5, 2]).toEqual(1))
     it('$negate', expect.eval(emptyScope, ["$negate", 5]).toEqual(-5))
-    it('$toString', expect.eval(emptyScope, ["$toString", 91]).toEqual("91"))
-    it('$arrayConcat',
-      expect.eval(emptyScope, ["$arrayConcat", [[], 1, 2], [[], 3, 4]]).toEqual([1, 2, 3, 4]))
-    it('$objectMerge',
-      expect.eval(emptyScope, ["$objectMerge", {a: 1, b: 2}, {b: 3, c: 4}]).toEqual({a: 1, b: 3, c: 4}))
+    it('$to-string', expect.eval(emptyScope, ["$to-string", 91]).toEqual("91"))
+    it('$array-concat',
+      expect.eval(emptyScope, ["$array-concat", [[], 1, 2], [[], 3, 4]]).toEqual([1, 2, 3, 4]))
   })
   it('can call a function from the scope',
     expect.eval(values({add1}), ["add1", 2]).toEqual(3))
@@ -247,55 +247,42 @@ const fnScope = _.merge({}, letScope, {
     [sq, ["$closure", {}, ["let", {"args": "$args"}, [uq, [0, "$args"]]], {}]], {}]
 })
 
-describe('evalModule', () => {
-  it('evaluates literal variables', withModule({
-    $module: 'test',
-    $export: ['a', 'b'],
-    a: 1, b: 2
-  }, scope => done => {
-    chai.expect(scope.value).to.have.property('a').equal(1)
-    chai.expect(scope.value).to.have.property('b').equal(2)
-    done()
-  }))
-  it('evaluates simple code w/o a scope', withModule({
-    $module: 'test',
-    $export: ['a', 'b'],
+describe('evalDefs', () => {
+  it('evaluates literal variables', withDefs({a: 1, b: 2},
+    scope => done => {
+      chai.expect(scope.value).to.have.property('a').equal(1)
+      chai.expect(scope.value).to.have.property('b').equal(2)
+      done()
+    }))
+  it('evaluates simple code w/o a scope', withDefs({
     a: ['', "foo"], b: ["$add", 1, 2]
   }, scope => done => {
     chai.expect(scope.value).to.have.property('a').equal("foo")
     chai.expect(scope.value).to.have.property('b').equal(3)
     done()
   }))
-  it('evaluates variables in the scope', withModule({
-    $module: 'test',
-    $export: ['a', 'b', 'c'],
-    a: 1, b: "a", c: "b"
-  }, scope => done => {
-    chai.expect(scope.value).to.have.property('a').equal(1)
-    chai.expect(scope.value).to.have.property('b').equal(1)
-    chai.expect(scope.value).to.have.property('c').equal(1)
-    done()
-  }))
-  it('evaluates functions in the scope', withModule({
-    $module: 'test',
-    $export: ['a', 'b'],
+  it('evaluates variables in the scope', withDefs({a: 1, b: "a", c: "b"},
+    scope => done => {
+      chai.expect(scope.value).to.have.property('a').equal(1)
+      chai.expect(scope.value).to.have.property('b').equal(1)
+      chai.expect(scope.value).to.have.property('c').equal(1)
+      done()
+    }))
+  it('evaluates functions in the scope', withDefs({
     add1: ['', add1], a: ["add1", 2], b: ["add1", 3]
   }, scope => done => {
     chai.expect(scope.value).to.have.property('a').equal(3)
     chai.expect(scope.value).to.have.property('b').equal(4)
     done()
   }))
-  it('evaluates macros in the scope', withModule({
-    $module: 'test',
-    $export: ['a', 'b'],
+  it('evaluates macros in the scope', withDefs({
     a: ["add1", 2], b: ["add1", 3], "macro.add1": ['', add1]
   }, scope => done => {
     chai.expect(scope.value).to.have.property('a').equal(3)
     chai.expect(scope.value).to.have.property('b').equal(4)
     done()
   }))
-  it('can define "let"', withModule(
-    _.merge({$module: 'test', $export: ['let']}, letScope),
+  it('can define "let"', withDefs(letScope,
     scope => cases({
       "one level":
         expect.fullEval(scope, ["let", {a: 1}, "a"]).toEqual(1),
@@ -308,32 +295,28 @@ describe('evalModule', () => {
       "let inside variable":
         expect.fullEval(scope, ["let", {a: ["let", {b: 2}, "b"]}, "a"]).toEqual(2)
     })))
-  it('can use "let" from another scope member', withModule(
-    _.merge({$module: 'test', $export: ['a'], a: ["let", {b: 1}, "b"]}, letScope),
+  it('can use "let" from another scope member', withDefs(
+    _.merge({a: ["let", {b: 1}, "b"]}, letScope),
     scope => done => {
       chai.expect(scope.value).to.have.property('a').equal(1)
       chai.expect(scope.value).to.not.have.property('b')
       done()
     }))
-  it('can define "fn*"', withModule(
-    _.merge({$module: 'test', $export: ['fn*']}, fnScope),
+  it('can define "fn*"', withDefs(
+    fnScope,
     scope => done => {
       chai.expect(scope.macro).to.have.property('fn*').not.be.an.instanceOf(Deferred)
       chai.expect(isClosure(<Jaspr>scope.macro['fn*'])).to.be.true
       done()
     }))
-  it('can define a macro with "fn*"', withModule(_.merge({
-      $module: 'test',
-      $export: ['add1'],
+  it('can define a macro with "fn*"', withDefs(_.merge({
       "macro.add1": ["fn*", ["$add", 1, [0, "args"]]]
     }, fnScope), scope => done => {
       chai.expect(scope.macro).to.have.property('add1').not.be.an.instanceOf(Deferred)
       chai.expect(isClosure(<Jaspr>scope.macro.add1)).to.be.true
       done()
     }))
-  it('can use a "fn*"-defined macro in the scope', withModule(_.merge({
-      $module: 'test',
-      $export: ['a'],
+  it('can use a "fn*"-defined macro in the scope', withDefs(_.merge({
       "macro.add1": ["fn*", ["$add", 1, [0, "args"]]], a: ["add1", 2]
     }, fnScope), scope => done => {
       chai.expect(scope.value).to.have.property('a').equal(3)

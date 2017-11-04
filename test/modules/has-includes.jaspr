@@ -1,0 +1,6 @@
+$schema: "http://adam.nels.onl/schema/jaspr/module"
+$module: jaspr-tests.has-includes
+$include: ["included.jaspr"]
+
+original: 'original-value
+$export: {original}

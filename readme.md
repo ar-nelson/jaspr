@@ -13,12 +13,12 @@ Jaspr is:
   * No fixed execution order unless explicitly ordered
   * Synchronous-looking I/O code becomes async, without callbacks
   * Semi-lazy: Everything is a promise, unused values are still computed but don't block other code
-* Concurrent, using an Erlang-like process model
-  * All code already executes concurrently, but processes provide error handling and isolation
-  * Processes pass messages using channels (think Go)
-  * Mutable state is process-local, making parallelism easy
+* Concurrent, using Go-style channels
+  * All code automatically executes concurrently in fibers
+  * Fibers pass messages using channels (think Go)
+  * Channels are the only mutable state, making parallelism easy
 * Unicode-friendly
-  * Unquoted strings are normalized (NFKC)
+  * All string operations are Unicode-aware
   * Syntax supports smart quotes and exotic paren/bracket/brace characters
 * Implemented on top of JavaScript
   * Other backends are planned
@@ -31,27 +31,26 @@ $export: {fib, quicksort}
 doc.fib: “Computes the *n*th Fibonacci number.”
 fib:
   (fn 0 0
-    | 1 1
-    | n (+ (fib (- n 1)) (fib (- n 2))))
+    . 1 1
+    . n (+ (fib (- n 1)) (fib (- n 2))))
 
 doc.quicksort: “
   Recursively sorts an array of numbers using the Quicksort algorithm.
 ”
 quicksort:
   (fn []  []
-    | [x] [x]
-    | xs  (let {
-             pivot: (-> xs len (div 2) floor),
-             y: (pivot xs),
-             choose:
-               (fn p x (let {
-                          k: (if (< x y) '<
-                                 (> x y) '>
-                                 (= x y) '=
-                                 (throw {err: “cannot compare”, x, y}))
-                       } (update (λ cons x _) k p))),
-             parts: (reduce choose {<: [], =: [], >: []} xs)
-           } (++ (quicksort ('< parts)) ('= parts) (quicksort ('> parts)))))
+    . [x] ([] x)
+    . xs  (let* pivot  (-> xs len (div 2) floor)
+                y      (pivot xs)
+                choose (fn p x
+                         (let {k: (if (< x y) 'lt
+                                      (> x y) 'gt
+                                      (= x y) 'eq
+                                      (throw {err: “cannot compare”, x, y}))}
+                              (update (λ cons x _) k p)))
+                {lt eq gt} (reduce choose {lt: [], eq: [], gt: []} xs)
+
+                (++ (quicksort lt) eq (quicksort gt))))
 ```
 
 Jaspr is a personal project, and it's a long way from being usable. I took
@@ -60,10 +59,10 @@ inspiration from several existing languages in designing it:
 * Clojure – Library design, non-list data structures in Lisp
 * [Arc][arc] – Terse syntax for core macros/functions: `if`, `no`, etc.
 * JavaScript – JSON, async with event loop
-* Erlang – Immutable functional programming, processes with message passing
-* Go – Channels, autoload modules via Git
+* Erlang – Immutable functional programming in a dynamically-typed language
+* Go – Channels, fibers, autoload modules via Git
 * [Orc][orc] – Concurrent-by-default evaluation
-* Perl 6 - Pedantic Unicode support in syntax and string handling
+* Perl 6 – Pedantic Unicode support in syntax and string handling
 
 [arc]: http://www.paulgraham.com/arc.html
 [orc]: http://orc.csres.utexas.edu/
@@ -102,7 +101,7 @@ $main:
   (seq
     ;; Arrays can be written with () instead of []. In a () context, quoted
     ;; strings are surrounded by the quote macro (the empty string).
-    (print “The meaning of life is ” (* 6 7))
+    (print! “The meaning of life is ” (* 6 7))
 
     ;; Commas are allowed in lists, but can be omitted.
     (for-each (λx print x) '[“foo”, “bar”, “baz”]))
@@ -117,7 +116,7 @@ $main:
   "$module": "test",
   "$doc": "“Smart quotes” are supported, and they nest!",
   "$main": ["seq",
-    ["print", ["", "The meaning of life is "], ["*", 6, 7]],
+    ["print!", ["", "The meaning of life is "], ["*", 6, 7]],
     ["for-each", ["λx", "print", "x"], ["", ["foo", "bar", "baz"]]]]
 }
 ```

@@ -1,0 +1,7 @@
+$schema: "http://adam.nels.onl/schema/jaspr/module"
+$module: jaspr-tests.hello-world
+
+hello-world: '"Hello, world!"
+$main: ($print hello-world)
+
+$export: {hello-world}

@@ -1,9 +1,15 @@
 import {expect} from 'chai'
-import parse from '../src/Parse'
+import Parser from '../src/Parser'
 import {readFileSync} from 'fs'
 require('source-map-support').install({
   handleUncaughtExceptions: false
 })
+
+function parse(str: string, filename = "<test>") {
+  const parser = new Parser(filename)
+  parser.read(str)
+  return parser.getOneResult()
+}
 
 describe('the parser', () => {
   it('parses top-level null', () => expect(parse('null')).to.equal(null))
@@ -75,6 +81,7 @@ describe('the parser', () => {
     expect(parse(`
       // JS style!
       ; Lisp style!
+      💭 Emoji style!
       foo
     `)).to.equal('foo')
   })

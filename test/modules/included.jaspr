@@ -1,0 +1,4 @@
+$schema: "http://adam.nels.onl/schema/jaspr/module"
+
+included: 'included-value
+$export: {included}
