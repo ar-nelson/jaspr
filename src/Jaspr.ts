@@ -1,6 +1,6 @@
 import * as _ from 'lodash'
 import * as async from 'async'
-import {closure as closureKey} from './ReservedNames'
+import * as Names from './ReservedNames'
 import {reservedChar} from './Parser'
 
 /** 
@@ -42,11 +42,29 @@ export const emptyScope: Scope =
  * `$code` property containing the executable Jaspr code of the function.
  */
 export interface JasprClosure extends JasprObject {
-  '$closure': Scope
+  $closure: Scope
+}
+
+/** Magic Jaspr values contain extra data stored in a hidden Symbol property. */
+export const magicSymbol = Symbol("magic")
+
+export const closureMarker = {}
+export const dynamicMarker = {}
+
+export type Err =
+  'NoBinding' | 'NoKey' | 'NoMatch' | 'BadName' | 'BadArgs' | 'BadModule' |
+  'BadPattern' | 'NotCallable' | 'NoPrimitive' | 'NotJSON' | 'ChanClosed' |
+  'ParseFailed' | 'EvalFailed' | 'ReadFailed' | 'WriteFailed' | 'NativeError'
+
+export interface JasprError extends JasprObject {
+  err: Err, why: string
+}
+export interface JasprDynamic extends JasprObject {
+  $dynamic: true, $default: Jaspr | Deferred
 }
 
 export type Callback = (x: Jaspr) => void
-export type ErrCallback = (err: JasprObject | null, x: Jaspr) => void
+export type ErrCallback = (err: JasprError | null, x: Jaspr) => void
 
 /** 
  * A Deferred object is a lazy value. It is a simplified promise, without
@@ -97,10 +115,24 @@ export class Deferred {
 
 export const isArray: (it: Jaspr) => it is JasprArray = Array.isArray
 export function isObject(it: Jaspr): it is JasprObject {
-  return _.isPlainObject(it)
+  return typeof it === 'object' && it != null && !isArray(it) &&
+         !(it instanceof Deferred)
 }
 export function isClosure(it: Jaspr): it is JasprClosure {
-  return isObject(it) && Object.prototype.hasOwnProperty.call(it, closureKey)
+  return isObject(it) && Names.closure in it
+}
+export function isMagic(it: Jaspr) {
+  return isObject(it) && magicSymbol in it
+}
+export function isDynamic(it: Jaspr): it is JasprDynamic {
+  return isObject(it) && it[magicSymbol] === dynamicMarker
+}
+export function makeDynamic(defaultValue: Jaspr | Deferred): JasprDynamic {
+  return <JasprDynamic>{
+    [Names.dynamic]: true,
+    [Names.default_]: defaultValue,
+    [magicSymbol]: dynamicMarker
+  }
 }
 export function toBool(a: Jaspr): boolean {
   if (typeof a === 'boolean') return a
@@ -114,7 +146,7 @@ export function toBool(a: Jaspr): boolean {
 export function getIndex(index: number, array: JasprArray, cb: ErrCallback): void {
   const it = array[index]
   if (it === undefined) {
-    cb({err: 'array index out of bounds', array, index}, null)
+    cb({err: 'NoKey', why: 'array index out of bounds', key: index, in: array,}, null)
   } else if (it instanceof Deferred) {
     it.await(v => {array[index] = v; cb(null, v)})
   } else cb(null, it)
@@ -123,7 +155,7 @@ export function getIndex(index: number, array: JasprArray, cb: ErrCallback): voi
 export function getKey(key: string, object: JasprObject, cb: ErrCallback): void {
   const it = object[key]
   if (it === undefined || _.isFunction(it)) {
-    cb({err: 'key not found in object', key, object}, null)
+    cb({err: 'NoKey', why: 'key not found in object', key, in: object}, null)
   } else if (it instanceof Deferred) {
     it.await(v => {object[key] = v; cb(null, v)})
   } else cb(null, it)
@@ -143,19 +175,48 @@ export function resolveObject(object: JasprObject, cb: (x: {[k: string]: Jaspr})
   }, () => cb(<{[k: string]: Jaspr}>object))
 }
 
-export function resolveFully(x: Jaspr, cb: ErrCallback, jsonOnly = false, history: Jaspr[] = []): void {
-  if (isArray(x)) {
-    resolveArray(x, xs => async.each(xs,
-      (y, cb: ErrCallback) => resolveFully(y, cb, jsonOnly, history),
-      () => cb(null, xs)))
-  } else if (jsonOnly && isClosure(x)) {
-    cb({err: "No JSON representation for closure", closure: x}, null)
-  } else if (isObject(x)) {
-    if (history.indexOf(x) > -1) cb(null, x)
-    resolveObject(x, xs => async.each(xs,
-      (y, cb: ErrCallback) => resolveFully(y, cb, jsonOnly, history.concat([x])),
-      () => cb(null, xs)))
-  } else cb(null, x)
+export function resolveFully(root: Jaspr, cb: ErrCallback, jsonOnly = false): void {
+  let pending = 1, stack: Jaspr[] = [], history = new Set<JasprObject>()
+  function loop(toPush: Jaspr) {
+    pending--
+    stack.push(toPush)
+    try {
+      while (stack.length > 0) {
+        const x = <Jaspr>stack.pop()
+        if (isArray(x)) {
+          for (let i = 0; i < x.length; i++) {
+            const el = x[i]
+            if (el instanceof Deferred) {
+              pending++
+              el.await(resolved => {
+                x[i] = resolved
+                setImmediate(loop, resolved)
+              })
+            } else stack.push(el)
+          }
+        } else if (jsonOnly && isMagic(x)) {
+          throw {err: 'NotJSON', why: 'No JSON representation for magic object', value: x}
+        } else if (isObject(x) && !history.has(x)) {
+          history.add(x)
+          for (let k in x) {
+            const el = x[k]
+            if (el instanceof Deferred) {
+              pending++
+              el.await(resolved => {
+                x[k] = resolved
+                setImmediate(loop, resolved)
+              })
+            } else stack.push(el)
+          }
+        }
+      }
+    } catch (ex) {
+      if (ex instanceof Error) throw ex
+      else return cb(ex, null)
+    }
+    if (pending <= 0) return cb(null, root)
+  }
+  loop(root)
 }
 
 export function toJson(x: Jaspr, cb: (err: JasprObject | null, json: Json) => void): void {
@@ -178,7 +239,7 @@ function quoteString(str: string): string {
 }
 
 export function toString(it: Jaspr, bareString = false, alwaysQuote = false): string {
-  if (isClosure(it)) {
+  if (isClosure(it) && isMagic(it)) {
     return '(closure)'
   } else if (isObject(it)) {
     return `{${_.join(_.toPairs(it).map(([k, v]) => toString(k) + ': ' + toString(v)), ', ')}}`
@@ -189,6 +250,8 @@ export function toString(it: Jaspr, bareString = false, alwaysQuote = false): st
     if (alwaysQuote || it === '' || reservedChar.test(it) || it !== it.normalize('NFKC')) {
       return quoteString(it)
     } else return it
+  } else if (it instanceof Deferred && it.value !== undefined) {
+    return toString(it.value)
   } else {
     return '' + it
   }

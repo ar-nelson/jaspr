@@ -4,7 +4,7 @@ _[Table of Contents](jaspr.jaspr.md) • [⇨ Next: Data Types](data-types.jaspr
 
 # Syntax and Semantics
 
-Jaspr is, broadly speaking, a Lisp-like language: function calls are written `(function-name arg₀ arg₁ … argₙ)`, everything is an expression, and the language is [homoiconic][homoiconic] and can rewrite its own syntax via macros.
+Jaspr is, broadly speaking, a Lisp-like language: function calls are written `(functionName arg₀ arg₁ … argₙ)`, everything is an expression, and the language is [homoiconic][homoiconic] and can rewrite its own syntax via macros.
 
 Jaspr is also based on [JSON][json]. All Jaspr files are JSON documents, and are made up of only the six JSON data types: **null**, **booleans**, **numbers**, **strings**, **arrays**, and **objects**. Jaspr's syntax is an extension of JSON that makes Jaspr files look more like Lisp programs than JSON documents.
 
@@ -17,7 +17,7 @@ All JSON is valid Jaspr, but Jaspr adds several syntax extensions to JSON to mak
 
 ### Comments
 
-Jaspr supports line comments starting with `//` or `;` and block comments surrounded by `/*`…`*/`. Block comments can nest.
+Jaspr supports line comments starting with `//`, `;`, or `💭`, and block comments surrounded by `/*`…`*/`. Block comments can nest.
 
 ### Unquoted Strings
 
@@ -114,35 +114,35 @@ Strings, numbers, booleans, `null`, the empty array, the empty object, and quote
 
 ### Macro Application
 
-An array whose first element is a string is expanded as a _macro application_ if the array's first element is a name bound in the current scope's `macro` context. The name must be bound to a function, or an exception will be thrown. The function is called with the tail of the array, unevaluated, as its arguments; its return value becomes the result of the macro application.
+An array whose first element is a string is expanded as a _macro application_ if the array's first element is a name bound in the current scope's `macro` context. The name must be bound to a function, or an error will be raised. The function is called with the tail of the array, unevaluated, as its arguments; its return value becomes the result of the macro application.
 
 Given the macro binding
 
-    macro.add-1: (fn- x (+ 1 x))
+    macro.add1: (fn- x ($add 1 x))
 
-, the application of `add-1` to a number will expand to the successor of that number.
+, the application of `add1` to a number will expand to the successor of that number.
 
->     (macroexpand '(add-1 2)) ;= 3
+>     (macroexpand '(add1 2)) ;= 3
 
 Macro expansion is recursive; after macro application has occurred, the result will be expanded again.
 
-    macro.make-add-1: (fn- '(add-1 3))
+    macro.makeAdd1: (fn- '(add1 3))
 
->     (macroexpand '(make-add-1)) ;= 4
+>     (macroexpand '(makeAdd1)) ;= 4
 
 ### Recursive Expansion
 
 If an array can not be expanded as a macro application, it expands to the macro expansion of its elements. The elements are expanded concurrently, in no particular order.
 
 >     (macroexpand '[1 2 3]) ;= [1, 2, 3]
->     (macroexpand '[(add-1 1) ["foo" (add-1 2)]]) ;= [2, ["foo", 3]]
+>     (macroexpand '[(add1 1) ["foo" (add1 2)]]) ;= [2, ["foo", 3]]
 
 Non-closure objects also expand to the macro expansion of their values. The values are expanded concurrently, in no particular order.
 
 >     (macroexpand '{a: 1, b: 2}) ;= {a: 1, b: 2}
->     (macroexpand '{a: (add-1 1), b: (add-1 2)}) ;= {a: 2, b: 3}
+>     (macroexpand '{a: (add1 1), b: (add1 2)}) ;= {a: 2, b: 3}
 
-Attempting to expand a closure throws an exception.
+Attempting to expand a closure raises an `EvalFailed` error.
 
 ### Closures and Pre-expansion
 
@@ -178,7 +178,7 @@ Non-empty strings are evaluated as _names_ and looked up in the current scope. G
 
 >     "example" ;= 42
 
-Attempting to look up an unbound name will throw an exception.
+Attempting to look up an unbound name will raise a `NoBinding` error.
 
 ### Calls
 
@@ -190,7 +190,7 @@ If the callee evaluates to a _function_ (a closure with a `$code` key), the cont
 
 >     ('{$closure: {}, $code: 91})              ;= 91
 >     ('{$closure: {value: {x: 42}}, $code: x}) ;= 42
->     ('{$closure: {}, $code: $args} 1 2 3)     ;= '[1 2 3]
+>     ('{$closure: {}, $code: $args} 1 2 3)     ;= [1 2 3]
 
 #### Constructors
 
@@ -201,7 +201,7 @@ If the callee evaluates to the empty array `[]` or the empty object `{}`, it is 
 >     ({} 'a 1 'b 2) ;= {a: 1, b: 2}
 >     ({})           ;= {}
 
-`{}` throws an exception if it receives an odd number of arguments or if any of the key arguments are not strings.
+`{}` raises a `BadArgs` error if it receives an odd number of arguments or if any of the key arguments are not strings.
 
 #### Indexing
 
@@ -218,7 +218,7 @@ Negative indexes are supported; these count backward from the end of an array.
 >     (-1 '[a b c]) ;= "c"
 >     (-3 '[a b c]) ;= "a"
 
-An exception is thrown if:
+A `BadArgs` error is raised if:
 - The number of arguments is not exactly one
 - The first argument is not an array or object
 - The index does not exist in the array/object
@@ -226,13 +226,13 @@ An exception is thrown if:
 
 #### Other Call Types
 
-The empty string `""` is the quote special form (see [Quoting](#quoting)); it returns its first argument unevaluated, and throws an exception if it does not have exactly one argument.
+The empty string `""` is the quote special form (see [Quoting](#quoting)); it returns its first argument unevaluated, and raises a `BadArgs` error if it does not have exactly one argument.
 
 >     ["", "foo"] ;= "foo"
 
 If the callee (before evaluation) is a string that starts with `$`, the call is a special form, and its semantics depend on which form it is; see [Special Forms](#special-forms).
 
-If the callee evaluates to anything else (`null`, `true`, `false`, an array, or a non-closure object), an exception is thrown.
+If the callee evaluates to anything else (`null`, `true`, `false`, an array, or a non-closure object), a `NotCallable` error is raised.
 
 ### Object Literals
 
@@ -242,9 +242,9 @@ A non-closure object evaluates to an object with the same keys, and with its val
 
 ## Reserved Names
 
-All reserved names in Jaspr start with the `$` character. It is not possible to define new names starting with this character, and attempting to evaluate a name starting with `$` as anything other than the callee of a special form (except for the special variables `$args` and `$self`) will throw an exception.
+All reserved names in Jaspr start with the `$` character. It is not possible to define new names starting with this character, and attempting to evaluate a name starting with `$` as anything other than the callee of a special form (except for the special name `$args` and the magic constants `$signalHandler`, `$name`, `$module`, anf `$processID`) will raise a `NoBinding` error.
 
-Jaspr defines dozens of special forms and built-in functions prefixed with `$`, for performing various primitive operations. **These special forms should never be used directly in production Jaspr code.** They are intentionally undocumented, and may change from version to version.
+Jaspr defines dozens of special forms and built-in functions prefixed with `$`, for performing various primitive operations. **These special forms should never be used directly in production Jaspr code.** They are intentionally undocumented, and may change from version to version. Calling a name starting with `$` that is not available in the current Jaspr implementation will raise a `NotMagic` error.
 
 ## Special Forms
 
@@ -258,11 +258,44 @@ Jaspr's core syntax is made up of several _special forms_ with unique evaluation
 
     macro.closure: ($closure {} `[$closure ~(0 $args) ~(1 $args) {}] {})
 
+### `raise`
+
+Raises a signal, by calling the function stored in the dynamic variable `$signalHandler`. The signal handler may return a value to resume from the `raise` call; this value will become the return value of `raise`.
+
+    raise: (closure {} (($dynamicGet $signalHandler) (0 $args)))
+
+### `myName`
+
+Macro that becomes the fully-qualified name that it is currently being evaluated in. The value of `myName` is set by closure scopes (`let` bindings) and top-level bindings.
+
+>     ((closure {foo: (myName)} foo)) ;= “foo”
+
+    macro.myName:
+    (closure {}
+      ([] “” ($if ($dynamicGet $module)
+                  ($stringConcat ($dynamicGet $module)
+                    ($stringConcat “.” ($dynamicGet $name)))
+                  ($dynamicGet $name))))
+
+### `assertArgs`
+
+`(assertArgs assertion₀ msg₀ assertion₁ msg₁ … assertionₙ msgₙ body)` is a convenience macro used throughout the standard library to raise a `BadArgs` error if the arguments of a function do not meet certain requirements. Each `assertion` is evaluated, and, if any `assertion` evaluates to a falsy value, a `BadArgs` error is raised with the corresponding `msg` as the value of its `why` property. If all `assertion`s evaluate to truthy values, `body` is evaluated and returned.
+
+    debugArgs: ($dynamicMake null)
+    macro.assertArgs:
+    (closure {}
+      ($if ($less ($arrayLength $args) 3)
+           (0 $args)
+           `[$if ~(0 $args)
+                 (assertArgs ~@($arraySlice 2 ($arrayLength $args) $args))
+                 (raise {
+                   err: 'BadArgs, why: ~(1 $args), fn: (myName),
+                   args: ($dynamicGet debugArgs)
+                 })]))
+
 ### `let`
 
 `(let {name₀: x₀, name₁: x₁, … nameₙ: xₙ} body)` evaluates `body` in a scope in which the names `name₀`…`nameₙ` are bound to the values `x₀`…`xₙ`. It is equivalent to creating a new function with the bindings, then immediately calling the function.
-
-    macro.let: (closure {} `[(closure ~(0 $args) ~(1 $args))])
 
 >     (let {x: 1} x) ;= 1
 >     (let {x: (let {y: 2} y)} x) ;= 2
@@ -275,26 +308,43 @@ Bindings are evaluated recursively: the value of each binding is evaluated in a 
 Context prefixes are allowed, but the only supported contexts are `value`, `macro`, and `check`.
 
 >     (let {macro.app: (closure {} ([] (0 $args) (1 $args)))}
->          (app 1 '[a b])) ;= "b"
+>          (app 1 '[a b])) ;= “b”
+
+---
+
+    macro.let:
+    (closure {}
+      ($dynamicLet debugArgs $args
+        (assertArgs
+          ($equals 2 ($arrayLength $args)) “let takes exactly 2 arguments”
+          ($equals 'object ($typeOf (0 $args))) “let bindings must be an object”
+          `[(closure ~(0 $args) ~(1 $args))])))
 
 ### `fn*`
 
 `(fn* args body)` creates a function that takes a variable number of arguments; `body` is the body of the function, and `args` is the name that the array of arguments is bound to.
 
->     ((fn* xs (1 xs)) '[a b c]) ;= "b"
+>     ((fn* xs (1 xs)) 'a 'b 'c) ;= “b”
 
-    macro.fn*: (closure {} `[closure {} (let ~({} (0 $args) '$args) ~(1 $args))])
+    macro.fn*:
+    (closure {}
+      ($dynamicLet debugArgs $args
+        (assertArgs
+          ($equals 2 ($arrayLength $args)) “fn* takes exactly 2 arguments”
+          ($equals 'string ($typeOf (0 $args))) “fn* argument name must be a string”
+          `[closure {} ($dynamicLet debugArgs $args
+                         (let ~({} (0 $args) '$args) ~(1 $args)))])))
 
 ### `if`
 
-A multi-clause conditional expression. `(if predicate then-case else-case)` evaluates and returns `then-case` if `predicate` is truthy, or `else` if `predicate` is falsy. Only one of the branches is evaluated.
+A multi-clause conditional expression. `(if predicate thenCase elseCase)` evaluates and returns `thenCase` if `predicate` is truthy, or `elseCase` if `predicate` is falsy. Only one of the branches is evaluated.
 
->     (if true "t" "f")  ;= "t"
->     (if false "t" "f") ;= "f"
+>     (if true “t” “f”)  ;= “t”
+>     (if false “t” “f”) ;= “f”
 
 If `else` is missing, it defaults to `null`.
 
->     (if false "t") ;= null
+>     (if false “t”) ;= null
 
 An `if ` form may contain multiple cases: `(if pred₀ then₀ pred₁ then₁ … predₙ thenₙ else)` evaluates `pred₀`…`predₙ` in order until one evaluates to a truthy value, then evaluates the corresponding `then`.
 
@@ -315,37 +365,93 @@ If no `pred` evaluated to a truthy value, `else` is evaluated. If `else` is miss
 ---
 
     macro.if:
-      (fn* argv (let {argc: ($array-length argv)}
-        ([] '$if (0 argv) (1 argv)
-            ($if ($less argc 4)
-                 ($if ($equals argc 3) (2 argv) null)
-                 `[if ~@($array-slice 2 argc argv)]))))
+    (fn* argv
+      (let {argc: ($arrayLength argv)}
+        `[$if ~(0 argv) ~(1 argv)
+              ~($if ($less argc 4)
+                    ($if ($equals argc 3) (2 argv) null)
+                    `[if ~@($arraySlice 2 argc argv)])]))
+
+### `and`
+
+`(and expr₀ expr₁ … exprₙ)` evaluates `expr₀`…`exprₙ` until one `expr` evaluates to a falsy value, then returns that.
+
+>     (and true false) ;= false
+>     (and 1 2 0 3) ;= 0
+
+If no `expr` evaluates to a falsy value, `and` evaluates to the last `expr` in its argument list.
+
+>     (and true true) ;= true
+>     (and 1 2 3) ;= 3
+
+`and` is a short-circuiting macro: if one of its arguments evaluates to a falsy value, the rest of the arguments will not be evaluated.
+
+---
+
+    macro.and:
+    (fn* exprs
+      (let {x: ($gensym), l: ($arrayLength exprs)}
+        (if ($equals l 1) (0 exprs)
+            exprs `[let ~({} x (0 exprs))
+                        ($if ~x (and ~@($arraySlice 1 l exprs)) ~x)]
+                   true)))
+
+### `or`
+
+`(or expr₀ expr₁ … exprₙ)` evaluates `expr₀`…`exprₙ` until one `expr` evaluates to a truthy value, then returns that.
+
+>     (or true false) ;= true
+>     (or 0 false 1 []) ;= 1
+
+If no `expr` evaluates to a truthy value, `or` evaluates to the last `expr` in its argument list.
+
+>     (or false false) ;= false
+>     (or 0 null {}) ;= {}
+
+`or` is a short-circuiting macro: if one of its arguments evaluates to a truthy value, the rest of the arguments will not be evaluated.
+
+---
+
+    macro.or:
+    (fn* exprs
+      (let {x: ($gensym), l: ($arrayLength exprs)}
+        (if ($equals l 1) (0 exprs)
+            exprs `[let ~({} x (0 exprs))
+                        ($if ~x ~x (or ~@($arraySlice 1 l exprs)))]
+                   false)))
 
 ### `fn-`
 
-Like `fn`, but does not support pattern matching on its argument names (read the name as "`fn` minus"). This macro is used internally by the standard library, for defining functions before pattern matching is available. **There is almost never a reason for code outside the standard library to use `fn-` instead of `fn`**.
+Like `fn`, but does not support pattern matching on its argument names (read the name as “`fn` minus”). This macro is used internally by the standard library, for defining functions before pattern matching is available. **There is almost never a reason for code outside the standard library to use `fn-` instead of `fn`**.
 
 `(fn- arg₀ arg₁ … argₙ body)` creates a function that takes a fixed number of arguments, where `body` is the body of the function and `arg₀`…`argₙ` are the names that the function's arguments are bound to.
 
 >     ((fn- 42)) ;= 42
 >     ((fn- x ([] x)) 42) ;= [42]
->     ((fn- index array (index array)) 1 '[a b c]) ;= "b"
+>     ((fn- index array (index array)) 1 '[a b c]) ;= “b”
+
+The resulting function raises a `BadArgs` error if it is called with a different number of arguments than it was defined with.
 
 ---
 
     macro.fn-:
-      (fn* fn-args
-        (let {
-          end: ($subtract ($array-length fn-args) 1),
-          loop: ; Recursive function that constructs the `let` scope containing
-                ; the argument bindings
-            (fn* args
-              (let {i: (0 args), scope: (1 args)}
-                   (if ($equals i end)
-                       scope
-                       (loop ($add i 1)
-                             ($object-insert (i fn-args) `[~i $args] scope)))))
-        } `[closure {} (let ~(loop 0 {}) ~(-1 fn-args))]))
+    (fn* fnArgs
+      (let {arity: ($subtract ($arrayLength fnArgs) 1)}
+        (assertArgs ($lessOrEqual 0 arity) “no function body”
+          (let {
+            loop: (fn* args
+                    (let {i: (0 args), scope: (1 args)}
+                      (if ($equals i arity)
+                          scope
+                          (loop ($add i 1)
+                                ($objectInsert (i fnArgs) `[~i $args] scope)))))
+          } `[closure {}
+               ($dynamicLet debugArgs $args
+                 (assertArgs
+                   ($equals ($arrayLength $args) ~arity)
+                   ~([] “” ($stringConcat “expected ”
+                              ($stringConcat ($toString arity) “ argument(s)”)))
+                   (let ~(loop 0 {}) ~(-1 fnArgs))))]))))
 
 ### `macroexpand`
 
@@ -353,7 +459,7 @@ Macro expands its argument in the current scope.
 
     macro.macroexpand: (fn- code `($macroexpand ~code))
 
->     (let {macro.to-42: (fn- 42)} (macroexpand '(to-42 x))) ;= 42
+>     (let {macro.to42: (fn- x 42)} (macroexpand '(to42 x))) ;= 42
 
 ### `eval`
 
@@ -361,73 +467,42 @@ Evaluates its argument in the current scope. Note that `eval` performs evaluatio
 
     macro.eval: (fn- code `($eval ~code))
 
->     (let {to-42: (fn- 42)} (eval '(to-42 null))) ;= 42
+>     (let {to42: (fn- x 42)} (eval '(to42 null))) ;= 42
 
 ### `apply`
 
-`(apply callee args)` calls the value `callee` with the arguments array `args`. Throws an exception if `callee` is not callable or `args` is not an array.
+`(apply callee args)` calls the value `callee` with the arguments array `args`. Raises a `NotCallable` error if `callee` is not callable, or a `BadArgs` error if `args` is not an array.
 
->     (apply [] '[1 2 3]) ;= [1, 2, 3]
+>     (apply {} '[a 1 b 2]) ;= {a: 1, b: 2}
 
-    apply: (fn- callee args ($apply callee args))
+    apply:
+    (fn- callee args
+      (assertArgs ($equals 'array ($typeOf args)) "not an array"
+        ($apply callee args)))
 
-### `throw`
+### `contextGet`
 
-`(throw ex)` calls the current exception handler function with `ex` as its only argument, and returns the result of this call.
+Looks up a name in the current scope, in a context other than the default (`value`). For example, `(contextGet macro "foo")` returns the macro `foo`. The second argument (the name) is evaluated, but the first argument (the context) is not.
 
-    throw: (fn- ex ($throw ex))
+>     (let {macro.to42: (fn- x 42)} ((contextGet macro “to42”) null)) ;= 42
 
-### `catch`
-
-`(catch handler body)` evaluates `body` with `handler` as its exception handler function. All `throw` calls in the context of `body` will call `handler`.
-
->     (catch (fn- err ([] err))
->            (throw 42)) ;= [42]
-
-Unlike lexical (`let`) bindings, the exception handler binding used by `throw` and `catch` is not captured by closures and remains the same when entering a function call (this is called [_dynamic scope_][dynamic-scope]).
-
->     (let {
->       f: (catch (fn- _ "This is f's lexical scope")
->                 (fn- (throw null)))
->       g: (catch (fn- _ "This is g's lexical scope")
->                 (fn- (f)))
->     } (g)) ;= "This is g's lexical scope"
-
-Exception handlers form a stack. `handler` is never its own exception handler; when a `throw` calls `handler`, the exception handler becomes the `catch` form's exception handler (the _parent_ exception handler) until `handler` returns or throws again. Repeated throws will climb the stack of exception handlers until the top-level handler is reached, which crashes the program.
-
->     (catch (fn- _ "From the parent exception handler")
->            (catch (fn- x (throw x)) ; Rethrow the exception.
->                   (throw null))) ;= "From the parent exception handler"
-
-[dynamic-scope]: https://en.wikipedia.org/wiki/Scope_(computer_science)#Lexical_scope_vs._dynamic_scope
-
----
-
-    macro.catch: (fn- handler body `[$let-exception-handler ~handler ~body])
-
-### `context-get`
-
-Looks up a name in the current scope, in a context other than the default (`value`). For example, `context-get macro "foo"` returns the macro `foo`. The second argument (the name) is evaluated, but the first argument (the context) is not.
-
->     (let {macro.to-42: (fn- 42)} ((context-get macro "to-42") null)) ;= 42
-
-    macro.context-get: (closure {} ($context-get (0 $args) (1 $args)))
+    macro.contextGet: (closure {} `[$contextGet ~(0 $args) ~(1 $args)])
 
 ### Other Special Forms
 
-`chan!`, `send!`, `recv!`, `close!`, and `closed?` are part of the core language; these deal with channels and message passing, and are defined in [Concurrency and Channels](concurrency.jaspr.md).
+`do`, `await`, `awaitAll`, `choice`, `chan!`, `send!`, `recv!`, `close!`, and `closed?` are part of the core language; these deal with concurrency, channels, and message passing, and are defined in [Concurrency and Channels](concurrency.jaspr.md).
 
-`fn`, `case`, and `let*` are also core parts of Jaspr syntax; these are defined in [Pattern Matching](pattern-matching.jaspr.md).
+`fn`, `case`, `let*`, `catch`, and `resume` are also core parts of Jaspr syntax; these are defined in [Pattern Matching](pattern-matching.jaspr.md).
 
 ## Naming Conventions
 
-All names in Jaspr should be `lower-case-with-hyphens`. This is true even for acronyms: `from-json`, not `from-JSON`. Capital letters in names are reserved for future extensions to the language, such as a type system; capital letters are only used in a few places in the standard library for compatibility purposes (e.g., `Infinity` and `NaN`).
+All alphanumeric names in Jaspr should be `camelCase`. Acronyms should be all-caps (`fromJSON`, not `fromJson`) except when the acronym is the first word (`jsonObject`, not `JSONObject`). Initial capital letters in names are reserved for future extensions to the language, such as a type system; initial capitals are only used in a few places in the standard library for compatibility purposes (e.g., `Infinity` and `NaN`).
 
 Try to balance terseness and readability. Names need not be excessively verbose for clarity; common abbreviations, such as `len` for length or `str` for string, are acceptable, but be consistent in the usage of these abbreviations.
 
 Functions that return boolean values should have names ending in `?` (except for symbolic names like `<` and a few special cases like `no`).
 
-Functions that have side effects or whose output is not 100% determined by their input should have names ending in `!`. This includes functions like `current-time-ms!`, which does not have side effects but is not purely functional either. If a function calls a function ending in `!`, then its name should almost always end in `!`, unless the side effects are contained in such a way that the function's effects appear pure (for example, using `try+` to create a process for error handling purposes).
+Functions that have side effects or whose output is not 100% determined by their input should have names ending in `!`. This includes functions like `currentTimeMs!`, which does not have side effects but is not purely functional either. If a function calls a function ending in `!`, then its name should almost always end in `!`, unless the side effects are contained in such a way that the function's effects appear pure.
 
 If a function name has multiple suffixes, `?` should appear before `!`.
 
@@ -442,7 +517,8 @@ If a macro uses a string as a marker to separate parts of an array (for example,
 ## Exports
 
     $export: {
-      closure let fn* if fn- macroexpand eval apply throw catch context-get
+      closure raise myName assertArgs let fn* if and or fn- macroexpand eval
+      apply contextGet debugArgs
 
-      💥: throw
+      ⚑:raise 🏴:raise 🏷:let &&: and ||: or
     }

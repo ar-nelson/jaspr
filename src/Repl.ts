@@ -1,11 +1,13 @@
 import chalk from 'chalk'
 import * as readline from 'readline'
+import {waterfall} from 'async'
 
-import {Jaspr, Json, Scope, Callback, emptyScope, resolveFully, toString} from './Jaspr'
+import {Jaspr, JasprError, Json, Scope, Callback, emptyScope, resolveFully} from './Jaspr'
 import {Env, Action, macroExpand, evalExpr} from './Interpreter'
-import {readModuleFile, evalModule, ModuleSource} from './Module'
+import {readModuleFile, evalModule, importModule, ModuleSource, Module} from './Module'
 import Fiber from './Fiber'
 import Parser from './Parser'
+import prettyPrint from './PrettyPrint'
 
 const banner = `
 ⎧                          ⎫
@@ -37,22 +39,26 @@ const root = Fiber.newRoot(handleError)
 let parser = new Parser('REPL input')
 let continued = false
 
+const filename = 'jaspr/jaspr.jaspr.md'
 const scopePromise = new Promise<Scope>(resolve => {
-  readModuleFile('./jaspr/jaspr.jaspr.md', (err, src) => {
+  const moduleRoot = Fiber.newRoot((env, err, cb) => {
+    console.error(chalk.redBright('\n⚠☠ Error occurred in standard library.'))
+    console.error(prettyPrint(err))
+    return process.exit(1)
+  })
+  waterfall<Module, JasprError>([
+    (cb: any) => readModuleFile(filename, cb),
+    (mod: ModuleSource, cb: any) => evalModule(moduleRoot, mod, {filename}, cb),
+    (mod: Module, cb: any) => importModule(mod, filename, cb),
+    resolveFully
+  ], (err, mod) => {
     if (err) {
       console.error(chalk.redBright('\n⚠☠ Failed to load standard library.'))
       if (err instanceof Error) console.error(err)
-      else console.error(toString(err))
+      else console.error(prettyPrint(err))
       return process.exit(1)
     }
-    const moduleRoot = Fiber.newRoot((env, err, cb) => {
-      console.error(chalk.redBright('\n⚠☠ Error occurred in standard library.'))
-      console.error(toString(err))
-      return process.exit(1)
-    })
-    resolveFully(
-      evalModule(moduleRoot, <ModuleSource>src, emptyScope),
-      (err, m) => resolve(<Scope>m))
+    resolve(mod)
   })
 })
 
@@ -78,9 +84,9 @@ function setState(st: State) {
 
 function handleError(env: Env, err: Jaspr, cb: Callback) {
   if (timeout != null) clearTimeout(timeout)
-  console.log(`\n${chalk.redBright('UNHANDLED EXCEPTION')} in fiber ${promptNumber()}:`)
-  console.log(chalk.yellowBright(toString(err, false, true)))
-  console.log('\nEnter a replacement expression to recover from the exception.')
+  console.log(`\n${chalk.redBright('UNHANDLED SIGNAL')} raised in fiber ${promptNumber()}:`)
+  console.log(prettyPrint(err))
+  console.log('\nEnter a replacement expression to resume from where the signal was raised.')
   console.log(`Leave blank and press ENTER to cancel fiber ${promptNumber()} and continue.\n`)
   errorCallback = cb
   setState(State.Recover)
@@ -129,7 +135,7 @@ rl.on('line', line => {
         const number = counter
         fullEval(code, result => resolveFully(result, (err, result) => {
           if (timeout != null) clearTimeout(timeout)
-          console.log(chalk.green(`№${number} ⇒`) + ' ' + toString(result, false, true))
+          console.log(chalk.green(`№${number} ⇒`) + ' ' + prettyPrint(result))
           lastFiber = null
           counter++
           setState(State.Input)
@@ -199,8 +205,6 @@ rl.on('line', line => {
   console.log('Bye!')
   process.exit(0)
 })
-
-
 
 console.log(banner)
 prompt()

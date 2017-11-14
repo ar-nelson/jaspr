@@ -46,11 +46,11 @@ quicksort:
                          (let {k: (if (< x y) 'lt
                                       (> x y) 'gt
                                       (= x y) 'eq
-                                      (throw {err: “cannot compare”, x, y}))}
+                                      (raise {err: “NotComparable”, x, y}))}
                               (update (λ cons x _) k p)))
                 {lt eq gt} (reduce choose {lt: [], eq: [], gt: []} xs)
 
-                (++ (quicksort lt) eq (quicksort gt))))
+                (cat (quicksort lt) eq (quicksort gt))))
 ```
 
 Jaspr is a personal project, and it's a long way from being usable. I took
@@ -73,9 +73,9 @@ Jaspr is still under development. If you want to try it out, after installing
 dependencies with `npm install`, you can:
 
 * Run unit tests – `npm test`
-* Get a REPL with the standard library – `node index.js`
+* Get a REPL with the standard library – `npm run repl`
 
-The standard library can be found in `lib/prelude.jaspr`.
+The standard library and documentation, as a literate program, can be found in `jaspr/jaspr.jaspr.md`. **The standard library and documentation are currently incomplete.**
 
 ## Syntax
 
@@ -98,13 +98,13 @@ $module: test ; Strings don't require quotes if unambiguous
 $doc: ““Smart quotes” are supported, and they nest!”
 
 $main:
-  (seq
+  (do
     ;; Arrays can be written with () instead of []. In a () context, quoted
     ;; strings are surrounded by the quote macro (the empty string).
     (print! “The meaning of life is ” (* 6 7))
 
     ;; Commas are allowed in lists, but can be omitted.
-    (for-each (λx print x) '[“foo”, “bar”, “baz”]))
+    (forEach (λx print x) '[“foo”, “bar”, “baz”]))
 
 ```
 
@@ -115,9 +115,9 @@ $main:
   "$schema": "http://adam.nels.onl/schema/jaspr/module",
   "$module": "test",
   "$doc": "“Smart quotes” are supported, and they nest!",
-  "$main": ["seq",
+  "$main": ["do",
     ["print!", ["", "The meaning of life is "], ["*", 6, 7]],
-    ["for-each", ["λx", "print", "x"], ["", ["foo", "bar", "baz"]]]]
+    ["forEach", ["λx", "print", "x"], ["", ["foo", "bar", "baz"]]]]
 }
 ```
 
@@ -132,18 +132,21 @@ object is quoted.
 Closures in Jaspr are objects with `$closure` keys. Closures are slightly magic;
 a closure's scope can contain self-references, unlike all other Jaspr values.
 To keep cyclical values from leaking into other parts of the program, the
-`$closure` key cannot be directly accessed or converted to JSON.
+`$closure` key cannot be converted to JSON.
 
 Functions are closures with a `$code` key. A function is executed when it is the
 first element of an evaluated list. The code it contains is evaluated in the
 closure's scope, with the call's arguments accessible via the `$args` variable.
 
-The empty string is the quote macro, and `$syntax-quote`/`$unquote` form a
+The empty string is the quote macro, and `$syntaxQuote`/`$unquote` form a
 quasiquote/unquote macro. These shouldn't be used directly in Jaspr syntax,
 because standard Lisp quoting syntax is available instead. Numbers and strings
-are indexing functions, a la Clojure.
+can be called as indexing functions; this is the reverse of the indexing syntax
+in Lisps like Arc or newLISP, which use the data structure as the callee
+instead.
 
 The arguments of a function call and the values of an object literal are always
 evaluated asynchronously, with no guaranteed ordering. To force a sequence of
 expressions to be executed sequentially, either create dependencies by defining
-bindings with `let`, or use the `seq` macro to execute expressions sequentially.
+bindings with `let`, or use the `await` macro to execute expressions
+sequentially.

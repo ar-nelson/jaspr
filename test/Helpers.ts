@@ -4,7 +4,9 @@ import {
 } from '../src/Jaspr'
 import Fiber from '../src/Fiber'
 //import {currentSchema, evalModule} from '../src/Module'
-import {Env, Action, evalExpr, macroExpand, evalDefs, deferExpandEval} from '../src/Interpreter'
+import {
+  Env, Action, raise, evalExpr, macroExpand, evalDefs, deferExpandEval
+} from '../src/Interpreter'
 import * as _ from 'lodash'
 import * as assert from 'assert'
 import {expect as chaiExpect} from 'chai'
@@ -106,20 +108,13 @@ export function withDefs(
   defs: JsonObject,
   fn: (scope: Scope) => (done: () => void) => void
 ): TestCase {
-  return expectContext((env, cb) => cb(evalDefs(env, emptyScope, defs)))
-    .toPass(<any>((scope: Scope, done: () => void) => fn(scope)(done)))
-}
-
-/*
-export function withModule(
-  module: JsonObject,
-  fn: (scope: Scope) => (done: () => void) => void
-): TestCase {
   return expectContext((env, cb) =>
-    cb(evalModule(env, _.merge({$schema: currentSchema}, module)))
+    evalDefs(env, undefined, emptyScope, defs, (err, scope) => {
+      if (err) raise(env, err, cb)
+      else cb(<Jaspr>scope)
+    })
   ).toPass(<any>((scope: Scope, done: () => void) => fn(scope)(done)))
 }
-*/
 
 export function cases(cs: {[name: string]: TestCase}): (done: () => void) => void {
   return done => {

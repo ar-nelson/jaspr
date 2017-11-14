@@ -1,13 +1,13 @@
 import {expect, cases, withDefs} from './Helpers'
 import {
   Jaspr, JasprObject, JasprClosure, JsonObject, Scope, resolveFully,
-  isClosure, Deferred, emptyScope
+  isClosure, Deferred, emptyScope, makeDynamic
 } from '../src/Jaspr'
 import * as Names from '../src/ReservedNames'
 import * as _ from 'lodash'
 import * as chai from 'chai'
 
-const sq = "$syntax-quote", uq = "$unquote", uqs = "$unquote-splicing"
+const sq = Names.syntaxQuote, uq = Names.unquote, uqs = Names.unquoteSplicing
 
 function closure(fn: Jaspr, scope=emptyScope): JsonObject & JasprClosure {
   return <any>{[Names.code]: fn, [Names.closure]: scope}
@@ -22,6 +22,7 @@ const add1 = closure(['$add', 1, [0, '$args']])
 const macro_add1 = closure([[], ['', 'add1'], [0, '$args']])
 const macro_array_add1 =
   closure([[], [[], ['', 'add1'], [0, '$args']], [[], ['', 'add1'], [1, '$args']]])
+const dyn = makeDynamic(false)
 
 describe('eval', () => {
   it('evaluates null, booleans, numbers, and empty structures as themselves', cases({
@@ -95,19 +96,6 @@ describe('eval', () => {
       "then": expect.eval(emptyScope, ["$if", true, 1, 2]).toEqual(1),
       "else": expect.eval(emptyScope, ["$if", false, 1, 2]).toEqual(2)
     }))
-    /*it('$macroget', () =>
-      expect(i.jasprEval({scope: {}, macroscope: {a: 1}}, ["$macroget", "a"])).to.become(1))
-    it('$macroexpand', async () => {
-      await expect(i.jasprEval(
-        {scope: {}, macroscope: {add1}},
-        ["$macroexpand", ['', ["add1", 4]]])).to.become(5)
-      await expect(i.jasprEval(
-        {scope: {add1}, macroscope: {macro_add1}},
-        ["$macroexpand", ['', ["macro_add1", 4]]])).to.become(["add1", 4])
-      await expect(i.jasprEval(
-        {scope: {add1: null}, macroscope: {add1, macro_add1}},
-        ["$macroexpand", ['', ["macro_add1", 4]]])).to.become(5)
-    })*/
     it('$closure', cases({
       "create closure":
         expect.eval(values({a:1, b: 2}), ["$closure", {}, ["+", 1, 2], {}]).toPass(cl => {
@@ -150,9 +138,21 @@ describe('eval', () => {
     it('$divide', expect.eval(emptyScope, ["$divide", 6, 2]).toEqual(3))
     it('$modulus', expect.eval(emptyScope, ["$modulus", 5, 2]).toEqual(1))
     it('$negate', expect.eval(emptyScope, ["$negate", 5]).toEqual(-5))
-    it('$to-string', expect.eval(emptyScope, ["$to-string", 91]).toEqual("91"))
-    it('$array-concat',
-      expect.eval(emptyScope, ["$array-concat", [[], 1, 2], [[], 3, 4]]).toEqual([1, 2, 3, 4]))
+    it('$toString', expect.eval(emptyScope, ["$toString", 91]).toEqual("91"))
+    it('$arrayConcat',
+      expect.eval(emptyScope, ["$arrayConcat", [[], 1, 2], [[], 3, 4]]).toEqual([1, 2, 3, 4]))
+    it('$dynamicGet, $dynamicLet', cases({
+      "get default":
+        expect.eval(emptyScope, ["$dynamicGet", ["", dyn]]).toEqual(false),
+      "let then get":
+        expect.eval(emptyScope,
+            ["$dynamicLet", ["", dyn], true, ["$dynamicGet", ["", dyn]]])
+          .toEqual(true),
+      "get from closure":
+        expect.eval(_.merge({}, emptyScope, {value: {get: {$closure:{}, $code:["$dynamicGet", [0, "$args"]]}}}),
+            ["$dynamicLet", ["", dyn], true, ["get", ["", dyn]]])
+          .toEqual(true),
+    }))
   })
   it('can call a function from the scope',
     expect.eval(values({add1}), ["add1", 2]).toEqual(3))
@@ -224,7 +224,7 @@ describe('macroexpand', () => {
     it('expands macros inside unquotes',
       expect.macroExpand(macros({add1}), [sq, [1, [uq, ["add1", 1]], 3]])
             .toEqual([[], ['', 1], 2, ['', 3]]))
-    it('uses arrayConcat to join $unquote-splicing/~@',
+    it('uses arrayConcat to join $unquoteSplicing/~@',
       expect.macroExpand(emptyScope, [sq, [1, 2, [uqs, ['', [3, 4]]]]])
             .toEqual(["$arrayConcat", [[], ['', 1], ['', 2]], ['', [3, 4]]]))
     it('can nest', cases({

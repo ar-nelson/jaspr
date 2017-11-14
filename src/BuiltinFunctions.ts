@@ -1,10 +1,12 @@
 import {
   Jaspr, Callback, Deferred, resolveFully, isArray, isObject, isClosure, toBool,
-  toString
+  toString, isMagic, isDynamic, makeDynamic, magicSymbol
 } from './Jaspr'
-import {Env, Action, call, error} from './Interpreter'
-import {mapKeys} from 'lodash'
+import {Env, Action, call, raise} from './Interpreter'
+import Chan from './Chan'
 import * as Names from './ReservedNames'
+import {mapKeys} from 'lodash'
+import {expect} from 'chai'
 const unicodeLength = require('string-length')
 
 export type Builtin = (env: Env, args: any[], cb: Callback) => void
@@ -29,7 +31,7 @@ export function uuid(): string {
 }
 
 const fns: {[name: string]: Builtin} = {
-  'type-of'(env, [it], cb) {
+  typeOf(env, [it], cb) {
     if (it === null) return cb('null')
     switch (typeof it) {
       case 'boolean': return cb('boolean')
@@ -47,31 +49,43 @@ const fns: {[name: string]: Builtin} = {
   sleep(env, [ms], cb) { setTimeout(cb, ms, null) },
   bool: wrap(toBool),
   equals(env, [a, b], cb) { cb(a === b) },
+  isMagic(env, [it], cb) { cb(isMagic(it)) },
+  [Names.assertEquals.slice(Names.prefix.length)](env, [a, b], cb) {
+    resolveFully(a, (err, a) => resolveFully(b, (err, b) => {
+      try {
+        if (isMagic(a) || isMagic(b)) return cb(a === b)
+        expect(a).to.deep.equal(b)
+        cb(true)
+      } catch (ex) {
+        env.testFailure(ex)
+        cb(false)
+      }
+    }))
+  },
 
   // channels
-  'chan-make'(env, [], cb) { env.makeChan(cb) },
-  'chan-send'(env, [msg, chan], cb) { env.send(chan[Names.chan], msg, cb) },
-  'chan-recv'(env, [msg, chan], cb) {
-    env.recv(chan[Names.chan], (err, val) => {
-      if (err != null) error(env, err, cb)
+  chanMake(env, [], cb) { cb(Chan.make()) },
+  isChan(env, [it], cb) { cb(Chan.isChan(it)) },
+  chanSend(env, [msg, chan], cb) {
+    (<Chan>chan[magicSymbol]).send(msg, cb)
+  },
+  chanRecv(env, [chan], cb) {
+    (<Chan>chan[magicSymbol]).recv((err, val) => {
+      if (err != null) raise(env, err, cb)
       else cb(<Jaspr>val)
     })
   },
-  'chan-close'(env, [chan], cb) { env.closeChan(chan[Names.chan], cb) },
-  'chan-is-closed'(env, [chan], cb) { env.isChanClosed(chan[Names.chan], cb) },
+  chanClose(env, [chan], cb) { cb((<Chan>chan[magicSymbol]).close()) },
+  chanIsClosed(env, [chan], cb) { cb((<Chan>chan[magicSymbol]).closed) },
 
   // dynamic variables
-  'dynamic-make'(env, [def], cb) { env.makeDynamic(def, cb) },
-  'dynamic-get'(env, [dyn], cb) {
-    env.getDynamic(dyn[Names.dynamic], (err, val) => {
-      if (err != null) error(env, err, cb)
-      else cb(<Jaspr>val)
-    })
-  },
+  dynamicMake(env, [def], cb) { cb(makeDynamic(def)) },
+  isDynamic(env, [it], cb) { cb(isDynamic(it)) },
+  dynamicGet(env, [dyn], cb) { env.getDynamic(dyn, cb) },
 
   // simple math
   less(env, [a, b], cb) { cb(+a < +b) },
-  'less-or-equal'(env, [a, b], cb) { cb(+a <= +b) },
+  lessOrEqual(env, [a, b], cb) { cb(+a <= +b) },
   add(env, [a, b], cb) { cb(+a + +b) },
   subtract(env, [a, b], cb) { cb(+a - +b) },
   multiply(env, [a, b], cb) { cb(+a * +b) },
@@ -107,41 +121,41 @@ const fns: {[name: string]: Builtin} = {
   hypot(env, [a, b], cb) { cb(Math.hypot(a, b)) },
   infinity(env, [], cb) { cb(Infinity) },
   NaN(env, [], cb) { cb(NaN) },
-  'is-finite': wrap(isFinite),
-  'is-NaN': wrap(isNaN),
+  isFinite: wrap(isFinite),
+  isNaN: wrap(isNaN),
 
   // strings
-  'to-string'(env, [a], cb) {
+  toString(env: Env, [a]: Jaspr[], cb: Callback) {
     resolveFully(a, (err, x) => cb(toString(x, true)))
   },
-  'to-json'(env, [a], cb) { 
+  toJSON(env, [a], cb) { 
     resolveFully(a, (err, x) => {
-      if (err) error(env, err, cb)
+      if (err) raise(env, err, cb)
       else cb(toString(x))
     }, true)
   },
-  'from-json'(env, [a], cb) { cb(JSON.parse(a)) },
-  'string-compare'(env, [a, b], cb) {
+  fromJSON(env, [a], cb) { cb(JSON.parse(a)) },
+  stringCompare(env, [a, b], cb) {
     if ('' + a < '' + b) cb(-1)
     else if ('' + a > '' + b) cb(1)
     else cb(0)
   },
-  'string-concat'(env, [a, b], cb) { cb('' + a + b) },
-  'string-replace'(env, [orig, repl, str], cb) {
+  stringConcat(env, [a, b], cb) { cb('' + a + b) },
+  stringReplace(env, [orig, repl, str], cb) {
     cb(String.prototype.replace.call(str, orig, repl))
   },
-  'string-native-index-of'(env, [needle, haystack, start], cb) {
+  stringNativeIndexOf(env, [needle, haystack, start], cb) {
     cb(String.prototype.indexOf.call(needle, haystack, start))
   },
-  'string-native-last-index-of'(env, [needle, haystack, start], cb) {
+  stringNativeLastIndexOf(env, [needle, haystack, start], cb) {
     cb(String.prototype.lastIndexOf.call(needle, haystack, start))
   },
-  'string-native-length'(env, [str], cb) { cb(('' + str).length) },
-  'string-unicode-length'(env, [str], cb) { unicodeLength(str) },
-  'string-native-slice'(env, [start, end, str], cb) { 
+  stringNativeLength(env, [str], cb) { cb(('' + str).length) },
+  stringUnicodeLength(env, [str], cb) { unicodeLength(str) },
+  stringNativeSlice(env, [start, end, str], cb) { 
     cb(String.prototype.slice.call(str, start, end))
   },
-  'string-unicode-slice'(env, [start, end, str], cb) { 
+  stringUnicodeSlice(env, [start, end, str], cb) { 
     let out = '', index = 0
     for (let c of '' + str) {
       if (index >= end) break
@@ -150,48 +164,48 @@ const fns: {[name: string]: Builtin} = {
     }
     cb(out)
   },
-  'string-native-char-at'(env, [index, str], cb) {
+  stringNativeCharAt(env, [index, str], cb) {
     cb(String.prototype.charAt.call(str, index))
   },
-  'string-unicode-char-at'(env, [index, str], cb) {
+  stringUnicodeCharAt(env, [index, str], cb) {
     for (let c of '' + str) if (index-- <= 0) return cb(c)
     cb('')
   },
-  'string-unicode-code-point-at'(env, [index, str], cb) {
+  stringUnicodeCodePointAt(env, [index, str], cb) {
     for (let c of '' + str) if (index-- <= 0) return cb(<any>c.codePointAt(0))
     cb(null)
   },
-  'string-native-chars'(env, [str], cb) {
+  stringNativeChars(env, [str], cb) {
     str = '' + str
     let out = new Array<string>(str.length)
     for (let i = 0; i < out.length; i++) out[i] = str.charAt(i)
     cb(out)
   },
-  'string-unicode-chars'(env, [str], cb) { cb([...str]) },
-  'string-unicode-code-points'(env, [str], cb) {
+  stringUnicodeChars(env, [str], cb) { cb([...str]) },
+  stringUnicodeCodePoints(env, [str], cb) {
     cb([...str].map(c => c.codePointAt(0)))
   },
-  'string-native-from-chars'(env, [chars], cb) {
+  stringNativeFromChars(env, [chars], cb) {
     cb(Array.prototype.reduce.call(chars, (a: string, b: string) => a + b, ''))
   },
-  'string-unicode-from-code-points'(env, [codePoints], cb) {
+  stringUnicodeFromCodePoints(env, [codePoints], cb) {
     cb(String.fromCodePoint(...codePoints))
   },
-  'string-nfc'(env, [str], cb) {
+  stringNFC(env, [str], cb) {
     cb(String.prototype.normalize.call(str, 'NFC'))
   },
-  'string-nfd'(env, [str], cb) {
+  stringNFD(env, [str], cb) {
     cb(String.prototype.normalize.call(str, 'NFD'))
   },
-  'string-nfkc'(env, [str], cb) {
+  stringNFKC(env, [str], cb) {
     cb(String.prototype.normalize.call(str, 'NFKC'))
   },
-  'string-nfkd'(env, [str], cb) {
+  stringNFKD(env, [str], cb) {
     cb(String.prototype.normalize.call(str, 'NFKD'))
   },
 
   // arrays
-  'array-make'(env, [fn, len], cb) {
+  arrayMake(env, [fn, len], cb) {
     const out = new Array<Deferred>(len)
     for (let i = 0; i < len; i++) {
       out[i] = env.defer({
@@ -204,13 +218,13 @@ const fns: {[name: string]: Builtin} = {
   [Names.arrayConcat.slice(Names.prefix.length)](env, args, cb) {
     cb([].concat(...args))
   },
-  'array-length'(env, [a], cb) { cb(a.length) },
-  'array-slice'(env, [start, end, a], cb) {
+  arrayLength(env, [a], cb) { cb(a.length) },
+  arraySlice(env, [start, end, a], cb) {
     cb(Array.prototype.slice.call(a, start, end))
   },
 
   // objects
-  'object-make'(env, [fn, keys], cb) {
+  objectMake(env, [fn, keys], cb) {
     const out = Object.create(null)
     for (let k of keys) {
       out[k] = env.defer({
@@ -220,20 +234,20 @@ const fns: {[name: string]: Builtin} = {
     }
     cb(out)
   },
-  'object-has'(env, [key, obj], cb) { cb(has(obj, key)) },
-  'object-insert'(env, [key, val, obj], cb) {
+  objectHas(env, [key, obj], cb) { cb(has(obj, key)) },
+  objectInsert(env, [key, val, obj], cb) {
     const out = Object.create(null)
     for (let oldKey in obj) out[oldKey] = obj[oldKey]
     out[key] = val
     cb(out)
   },
-  'object-delete'(env, [key, obj], cb) {
+  objectDelete(env, [key, obj], cb) {
     const out = Object.create(null)
     for (let oldKey in obj) if (oldKey !== key) out[oldKey] = obj[oldKey]
     cb(out)
   },
-  'object-keys'(env, [obj], cb) { cb(Object.keys(obj)) },
-  'object-values'(env, [obj], cb) { cb(Object.keys(obj).map(k => obj[k])) }
+  objectKeys(env, [obj], cb) { cb(Object.keys(obj)) },
+  objectValues(env, [obj], cb) { cb(Object.keys(obj).map(k => obj[k])) }
 }
 
 export default mapKeys(fns, (v, k) => Names.prefix + k)

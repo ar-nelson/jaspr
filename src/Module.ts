@@ -4,12 +4,10 @@ import * as XRegExp from 'xregexp'
 import * as fs from 'fs'
 import * as path from 'path'
 import {
-  Jaspr, JasprObject, Json, JsonObject, Deferred, Scope, emptyScope, isArray,
-  isObject
+  Jaspr, JasprObject, JasprError, Json, JsonObject, Deferred, Callback, Scope,
+  emptyScope, isArray, isObject
 } from './Jaspr'
-import {
-  Env, evalDefs, deferExpandEval, JasprError, isLegalName
-} from './Interpreter'
+import {Env, evalDefs, deferExpandEval, isLegalName} from './Interpreter'
 import {has} from './BuiltinFunctions'
 import {prefix} from './ReservedNames'
 import Parser from './Parser'
@@ -32,7 +30,6 @@ export interface ModuleSource {
   $doc?: string
   $author?: string
   $main?: Json
-  // $include: boolean | string[]
   $import?: { [namespace: string]: Import }
   $export?: { [as: string]: string }
   [name: string]: Json | undefined
@@ -48,7 +45,7 @@ export interface Module extends Scope {
   $export: { [as: string]: string }
 }
 
-export const markdownExtensions = ['.md', 'mkd', '.markdown']
+export const markdownExtensions = ['.md', '.mkd', '.markdown']
 
 const githubRegex = /^https?:\/\/(www[.])?github[.]com\/[^\/]+\/[^\/]+/
 const httpRegex = /^https?:\/\/.+/
@@ -131,13 +128,14 @@ export function readModuleFile(
   history: string[] = []
 ): void {
   filename = path.normalize(filename)
-  if (history.indexOf(filename) > 0) {
+  if (history.indexOf(filename) >= 0) {
     return cb(undefined, {$schema: currentSchema})
   }
+  history.push(filename)
   fs.readFile(filename, (err, data) => {
     // Error check
     if (err != null) return cb({
-      err: 'module read failed', filename,
+      err: 'ReadFailed', why: 'failed to read module file', filename,
       'node-error': {
         name: err.name,
         message: err.message,
@@ -160,7 +158,7 @@ export function readModuleFile(
       if (ex instanceof Parser.ParseError) {
         const {filename, line, column} = ex.location
         return cb({
-          err: 'module parse failed', why: ex.message,
+          err: 'ParseFailed', why: ex.message,
           filename: filename || null, line, column
         })
       } else throw ex
@@ -168,31 +166,29 @@ export function readModuleFile(
 
     // Validate string properties
     if (!isObject(src)) return cb({
-      err: 'module is not an object', module: src, filename
+      err: 'BadModule', why: 'module is not an object',
+      module: src, filename
     })
     if (src.$schema !== currentSchema) return cb({
-      err: 'bad schema',
+      err: 'BadModule', why: 'bad or missing $schema property',
       help: `
         Jaspr modules must have a $schema property, and that property must be a
         valid Jaspr module schema location. Currently, the only supported schema
         is "${currentSchema}".
-      `.trim().replace(/\s+/, ' '),
+      `.trim().replace(/\s+/gm, ' '),
       schema: src.$schema || null, filename
-    })
-    if (src.$include === true && history.length === 0) return cb({
-      err: 'module is an include file', filename,
-      help: `
-        A module with the property "$include: true" is an include file. It can
-        only be included by other modules, not loaded as a module on its own.
-      `.trim().replace(/\s+/, ' '),
     })
     for (let key of ['$module', '$doc', '$author']) {
        if (src.hasOwnProperty(key) && typeof src[key] !== 'string') return cb({
-         err: `${key} is not a string`, [key]: src[key], filename
+         err: 'BadModule', why: `${key} is not a string`,
+         [key]: src[key], filename
        })
     }
     if (src.hasOwnProperty('$module') && !moduleNameRegex.test('' + src.$module)) {
-      return cb({err: 'bad module name', $module: src.$module, filename})
+      return cb({
+        err: 'BadModule', why: 'bad module name ($module property)',
+        $module: src.$module, filename
+      })
     }
 
     try {
@@ -207,22 +203,27 @@ export function readModuleFile(
         const includes = src.$include
         delete src.$include
         if (isArray(includes)) {
-          asyncReduce(includes, <ModuleSource>src, (mod, el, cb) => {
-            if (typeof el === 'string') {
-              const incFilename =
-                path.isAbsolute(el) ? el : path.join(path.dirname(filename), el)
-              readModuleFile(incFilename, (err, included) => {
-                if (err) return cb(err)
-                history.push(path.normalize(incFilename))
-                cb(undefined, mergeModules(
-                  <ModuleSource>mod, <ModuleSource>included,
-                  filename, incFilename))
-              }, history.concat([filename]))
-            } else {
-              cb({err: 'include is not a string', include: el, filename})
-            }
-          }, cb)
-        } else throw {err: '$include is not an array', $include: includes}
+          const includeNext = (mod: ModuleSource) => {
+            const include = includes.pop()
+            if (include === undefined) return cb(undefined, mod)
+            else if (typeof include !== 'string') return cb({
+              err: 'BadModule', why: 'include is not a string',
+              include, filename
+            })
+            const incFilename =
+              path.isAbsolute(include)
+              ? include : path.join(path.dirname(filename), include)
+            readModuleFile(incFilename, (err, included) => {
+              if (err) return cb(err)
+              includeNext(mergeModules(
+                <ModuleSource>mod, <ModuleSource>included,
+                filename, incFilename))
+            }, history)
+          }
+          includeNext(<ModuleSource>src)
+        } else throw {
+          err: 'BadModule', why: '$include is not an array', $include: includes
+        }
       } else {
         cb(undefined, <ModuleSource>src)
       }
@@ -245,7 +246,7 @@ function mergeModules(
         if (l === undefined) return r
         if (r === undefined) return l
         if (l !== r) throw {
-          err: `include failed: duplicate ${kind}`,
+          err: 'BadModule', why: `include failed: duplicate ${kind}`,
           includer: lFilename, included: rFilename, name,
           'includer-value': l, 'included-value': r
         }
@@ -260,7 +261,7 @@ function mergeModules(
             if (r === undefined) return l
             if (l.from !== r.from || l.via !== r.via || l.module !== r.module) {
               throw {
-                err: 'include failed: duplicate import',
+                err: 'BadModule', why: 'include failed: duplicate import',
                 includer: lFilename, included: rFilename, name,
                 'includer-import': l, 'included-import': r
               }
@@ -275,7 +276,7 @@ function mergeModules(
       default:
         if (l === r) return l
         else throw {
-          err: 'include failed: duplicate name',
+          err: 'BadModule', why: 'include failed: duplicate name',
           includer: lFilename, included: rFilename, name,
           'includer-value': l, 'included-value': r
         }
@@ -286,36 +287,80 @@ function mergeModules(
 export function evalModule(
   env: Env,
   module: ModuleSource,
-  evalScope: Scope = emptyScope
-): Module {
+  options: {filename: string, scope?: Scope, runMain?: boolean},
+  cb: AsyncResultCallback<Module, JasprError>,
+): void {
+  const {runMain, filename} = options
   const {$schema, $module, $main, $import, $export, $doc, $author} = module
-  if ($module === undefined && $main === undefined) {
-    // TODO: Throw Jaspr error instead of JS exception
-    throw new Error('module must define either $module or $main')
-  }
+  if ($module === undefined && $main === undefined) return cb({
+    err: 'BadModule', why: 'module must have either $module key or $main key',
+    filename
+  })
+
   // TODO: Load imports
-  const out = evalDefs(env, evalScope,
+
+  const defs: JasprObject = _.omit(
     _.pickBy(module, v => v !== undefined),
-    $module)
-  function makeExports<T>(sc: {[k: string]: T}): Dictionary<T> {
-    return _.transform($export || {}, (def, exported, as) => {
-      if (has(sc, exported)) def[$module + '.' + as] = def[as] = sc[exported]
+    ...Object.keys(module).filter(x => x.startsWith('$')))
+
+  evalDefs(env, $module || null, options.scope || emptyScope, defs, (err, scope) => {
+    if (err || scope === undefined) return cb(err)
+    
+    // TODO: Remove this debug code!
+    // ---------------------------------------------------------------------------
+    for (let k in scope.value) {
+      const v = scope.value[k]
+      if (v instanceof Deferred) {
+        const timeout =
+          setTimeout(() => console.warn(`value.${k} has not resolved!`), 2500)
+        v.await(() => clearTimeout(timeout))
+      }
+    }
+    for (let k in scope.macro) {
+      const v = scope.macro[k]
+      if (v instanceof Deferred) {
+        const timeout =
+          setTimeout(() => console.warn(`macro.${k} has not resolved!`), 2500)
+        v.await(() => clearTimeout(timeout))
+      }
+    }
+    // ---------------------------------------------------------------------------
+
+    scope.$schema = $schema
+    scope.$module = $module || null
+    scope.$doc = $doc || null
+    scope.$author = $author || null
+    scope.$import = $import || {}
+    scope.$export = $export || {}
+    scope.$main = runMain && $main !== undefined
+      ? deferExpandEval(env, scope, $main, '$main', $module)
+      : null
+    cb(undefined, <Module>scope)
+  })
+}
+
+export function importModule(
+  module: Module,
+  filename: string,
+  cb: AsyncResultCallback<Module, JasprError>
+): void {
+  const name = module.$module
+  if (name == null) return cb({
+    err: 'BadModule', why: 'cannot import script module', filename,
+    help: 'A module without a $module key is a script module, and cannot be imported.'
+  })
+  function onlyExports<T>(sc: any): any {
+    return _.transform(module.$export, (def, exported, as) => {
+      if (has(sc, `${name}.${exported}`)) {
+        def[`${name}.${as}`] = def[as] = sc[`${name}.${exported}`]
+      }
       return true
-    }, <Dictionary<T>>Object.create(null))
+    }, Object.create(null))
   }
-  const scope: Module = {
-    $schema, $main: null,
-    $module: $module || null, $doc: $doc || null, $author: $author || null,
-    $import: $import || {}, $export: $export || {},
-    value: makeExports(out.value),
-    macro: makeExports(out.macro),
-    check: makeExports(out.check),
-    doc: makeExports(out.doc),
-    test: out.test,
-    qualified: _.fromPairs(_.keys($export).map(k => [k, $module + '.' + k])),
-  }
-  if ($main != null) {
-    scope.$main = deferExpandEval(env, scope, $main, '$main', $module)
-  }
-  return scope
+  const out: any =
+    _(module).omit('test', 'qualified')
+             .mapValues((v, k) => k.startsWith('$') ? v : onlyExports(v))
+             .value()
+  out.qualified = _.mapValues(module.$export, (v, k) => `${name}.${k}`)
+  cb(undefined, out)
 }

@@ -201,10 +201,34 @@ describe('the parser', () => {
     expect(parse("'(1 2 3 4)")).to.deep.equal(["", [1, 2, 3, 4]])
     expect(parse("'{a: b, c: d}")).to.deep.equal(["", {a: 'b', c: 'd'}])
   })
-  it ('parses top-level syntax-quoted forms', () => {
-    expect(parse("`null")).to.deep.equal(["$syntax-quote", null])
-    expect(parse("`(1 2 3 4)")).to.deep.equal(["$syntax-quote", [1, 2, 3, 4]])
-    expect(parse("`{a: b, c: d}")).to.deep.equal(["$syntax-quote", {a: 'b', c: 'd'}])
+  it('parses top-level syntax-quoted forms', () => {
+    expect(parse("`null")).to.deep.equal(["$syntaxQuote", null])
+    expect(parse("`(1 2 3 4)")).to.deep.equal(["$syntaxQuote", [1, 2, 3, 4]])
+    expect(parse("`{a: b, c: d}")).to.deep.equal(["$syntaxQuote", {a: 'b', c: 'd'}])
+  })
+  it('quotes quoted strings inside parentheses', () => {
+    expect(parse('("foo")')).to.deep.equal([["", "foo"]])
+    expect(parse('("foo" ("bar" "baz"))')).to.deep.equal(
+      [["", "foo"], [["", "bar"], ["", "baz"]]])
+  })
+  it('does not quote unquoted strings inside parentheses', () => {
+    expect(parse('(foo)')).to.deep.equal(["foo"])
+    expect(parse('(foo (bar baz))')).to.deep.equal(["foo", ["bar", "baz"]])
+  })
+  it('does not quote quoted strings inside brackets', () => {
+    expect(parse('["foo"]')).to.deep.equal(["foo"])
+    expect(parse('["foo" ["bar" "baz"]]')).to.deep.equal(["foo", ["bar", "baz"]])
+  })
+  it('uses quoting style of innermost brackets/parens', () => {
+    expect(parse('(["foo"])')).to.deep.equal([["foo"]])
+    expect(parse('("foo" [("bar") "baz"])')).to.deep.equal(
+      [["", "foo"], [[["", "bar"]], "baz"]])
+  })
+  it('keeps innermost quoting style inside braces', () => {
+    expect(parse('[{foo: "bar"}]')).to.deep.equal([{foo: "bar"}])
+    expect(parse('({foo: "bar"})')).to.deep.equal([{foo: ["", "bar"]}])
+    expect(parse('[({foo: "bar"})]')).to.deep.equal([[{foo: ["", "bar"]}]])
+    expect(parse('([{foo: "bar"}])')).to.deep.equal([[{foo: "bar"}]])
   })
   it("can parse the project's JSON configuration files", () => {
     const file1 = readFileSync('package.json').toString()

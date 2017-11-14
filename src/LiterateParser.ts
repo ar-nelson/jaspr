@@ -126,7 +126,7 @@ export function parseMarkdown(src: string, filename?: string): JsonObject {
         pushHeader(headerMatch[1], match[1].charAt(0) === '=' ? 0 : 1)
       }
     }
-    if (headerName) currentDoc += line
+    if (headerName) currentDoc += line + '\n'
     lastLine = line
   })
   pushTests()

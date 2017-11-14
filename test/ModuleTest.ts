@@ -1,35 +1,35 @@
 import {AssertionError} from 'assert'
+import {waterfall} from 'async'
 import {expect} from 'chai'
-import {Jaspr, resolveFully, toString} from '../src/Jaspr'
+import {Jaspr, JasprError, resolveFully, toString} from '../src/Jaspr'
 import Fiber from '../src/Fiber'
-import {readModuleFile, evalModule, ModuleSource, Module} from '../src/Module'
+import {
+  readModuleFile, evalModule, importModule, ModuleSource, Module
+} from '../src/Module'
 
 function loadModule(
   filename: string, assertions: (module: Module) => void
 ): () => Promise<void> {
   return () => new Promise((resolve, reject) => {
-    let errored = false
     function fail(msg: string, err: Jaspr): void {
       reject(new AssertionError({message: msg + ': ' + toString(err)}))
     }
     const env = Fiber.newRoot((root, err, cb) => {
-      if (errored) return cb(null)
-      errored = true
       resolveFully(err, (resErr, err) => {
-        if (resErr) return fail('error resolving error', resErr)
         if (err) return fail('error evaluating module', err)
-        errored = false
         cb(null)
       })
     })
-    readModuleFile(`test/modules/${filename}`, (err, mod) => {
-      if (err) return fail('error reading module file', err)
-      resolveFully(evalModule(env, <ModuleSource>mod), (err, mod) => {
-        if (err) return fail('error resolving module', err)
-        try { assertions(<Module>mod) }
-        catch (ex) { reject(ex); return }
-        resolve()
-      })
+    waterfall<Module, JasprError>([
+      (cb: any) => readModuleFile(`test/modules/${filename}`, cb),
+      (mod: ModuleSource, cb: any) => evalModule(env, mod, {filename}, cb),
+      (mod: Module, cb: any) => importModule(mod, filename, cb),
+      resolveFully,
+    ], (err, mod) => {
+      if (err) return fail('error loading module', <JasprError>err)
+      try { assertions(<Module>mod) }
+      catch (ex) { reject(ex); return }
+      resolve()
     })
   })
 }
@@ -67,17 +67,18 @@ describe('the module loader', () => {
     expect(mod.value).to.have.property('indented').equal('indented-value')
     expect(mod.value).to.have.property('fenced').equal('fenced-value')
   }))
-  it('extracts tests from literate modules', loadModule('literate-tests.jaspr.md', mod => {
+  /*it('extracts tests from literate modules', loadModule('literate-tests.jaspr.md', mod => {
     expect(mod.$module).to.equal('jaspr-tests.literate-tests')
     expect(mod.value).to.be.empty
+    expect(mod.test).to.be.an('object')
     expect(mod.test).to.have.property('Literate-Program-with-Tests-0').equal(true)
     expect(mod.test).to.have.property('Literate-Program-with-Tests-1').deep.equal(
       ['$equals', ['$add', 2, 2], 4])
     expect(mod.test).to.have.property('Heading-1-0').deep.equal(
-      ['$assert-deep-equals', ['$add', 2, 2], ['', 4]])
+      ['$assertEquals', ['$add', 2, 2], ['', 4]])
     expect(mod.test).to.have.property('Heading-2-0').deep.equal(
-      ['$assert-deep-equals', [[], ['', 'a'], ['', 'b'], ['', 'c']], ['', ['a', 'b', 'c']]])
-  }))
+      ['$assertEquals', [[], ['', 'a'], ['', 'b'], ['', 'c']], ['', ['a', 'b', 'c']]])
+  }))*/
   it('loads included files', loadModule('has-includes.jaspr', mod => {
     expect(mod.$module).to.equal('jaspr-tests.has-includes')
     expect(mod.value).to.have.property('original').equal('original-value')
@@ -88,11 +89,11 @@ describe('the module loader', () => {
     expect(mod.$module).to.equal('jaspr-tests.has-recursive-include')
     expect(mod.value).to.have.property('original').equal('original-value')
     expect(mod.value).to.have.property('included').equal('included-value')
-    expect(mod.value).to.have.property('recursive-include').equal('recursive-include-value')
+    expect(mod.value).to.have.property('recursive-included').equal('recursive-included-value')
     expect(mod.$export).to.deep.equal({
       original: 'original',
       included: 'included',
-      'recursive-include': 'recursive-include'
+      'recursive-included': 'recursive-included'
     })
   }))
 })

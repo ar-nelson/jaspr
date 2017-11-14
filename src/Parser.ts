@@ -15,7 +15,7 @@ import * as _ from 'lodash'
 import * as XRegExp from 'xregexp'
 import {Json} from './Jaspr'
 import {
-  syntaxQuote, unquote, unquoteSplicing, assertDeepEquals
+  syntaxQuote, unquote, unquoteSplicing, assertEquals
 } from './ReservedNames'
 
 export const number = XRegExp(`^
@@ -278,7 +278,15 @@ class Parser {
           }))
           break
         case T.Quote:
-          expr = this.frame.contents[0]
+          for (let i = this.stack.length - 1; i > 0; i--) {
+            const {type} = this.stack[i]
+            if (type === T.Quote || type === T.Bracket) break
+            else if (type === T.Paren) {
+              expr = ['', this.frame.contents[0]]
+              break
+            }
+          }
+          if (expr === undefined) expr = this.frame.contents[0]
           break
         default:
           throw new Parser.ParseError(
@@ -353,7 +361,7 @@ class Parser {
                 subParser.read(rhs, {filename, line, column: c + offset.length})
                 const rhsValue = subParser.getOneResult()
                 this.frame.contents[this.frame.contents.length - 1] = [
-                  assertDeepEquals,
+                  assertEquals,
                   this.frame.contents[this.frame.contents.length - 1],
                   ['', rhsValue]]
               }

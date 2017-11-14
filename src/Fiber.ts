@@ -1,17 +1,40 @@
-import {Jaspr, Deferred, Callback, toString} from './Jaspr'
-import {Env, Action, Dynamics, DeferOptions, JasprError, waitFor} from './Interpreter'
+import {Jaspr, JasprError, JasprDynamic, Deferred, Callback, toString} from './Jaspr'
+import {Env, Action, Dynamics, DeferOptions, waitFor} from './Interpreter'
 import * as Names from './ReservedNames'
 import {uuid} from './BuiltinFunctions'
 import Chan from './Chan'
 
+class InheritWeakMap<K extends object, V> extends WeakMap<K, V> {
+  readonly parent: WeakMap<K, V>
+
+  constructor(elements: Iterable<[K, V]>, parent: WeakMap<K, V>) {
+    super(elements)
+    this.parent = parent
+  }
+
+  get(key: K): V | undefined {
+    const mine = super.get(key)
+    if (mine === undefined) return this.parent.get(key)
+    else return mine
+  }
+
+  has(key: K): boolean {
+    return super.has(key) || this.parent.has(key)
+  }
+
+  toString(): string {
+    return super.toString() + '; ' + this.parent.toString()
+  }
+}
+
 abstract class AbstractFiber extends Deferred implements Env {
-  readonly dynamics: Map<number, Jaspr | Deferred>
+  readonly dynamics: WeakMap<JasprDynamic, Jaspr | Deferred>
   readonly children = new Set<Fiber>()
   readonly action: Action
   readonly code?: Jaspr | Deferred
 
   constructor(
-    dynamics: Map<number, Jaspr | Deferred> = new Map(),
+    dynamics: WeakMap<JasprDynamic, Jaspr | Deferred> = new WeakMap(),
     action = Action.External,
     code?: Jaspr | Deferred
   ) {
@@ -22,17 +45,16 @@ abstract class AbstractFiber extends Deferred implements Env {
   }
   
   defer(options: DeferOptions): Fiber {
-    if (options.inherit) {
-      options.inherit = false
-      return this.parent().defer(options)
-    }
-    const dynamics = options.dynamics
-      ? new Map<number, Jaspr | Deferred>([...this.dynamics, ...options.dynamics])
-      : this.dynamics
-    const fiber = new Fiber(this, dynamics, options.action, options.code)
-    this.children.add(fiber)
+    const parent =
+      options.inherit && this.parent().action !== Action.Junction
+      ? this.parent() : this
+    const fiber = new Fiber(parent,
+      options.dynamics
+      ? new InheritWeakMap(options.dynamics, this.dynamics) : this.dynamics,
+      options.action, options.code)
+    parent.children.add(fiber)
     setImmediate(() => options.fn(fiber, fiber.resolve.bind(fiber)))
-    fiber.await(() => this.children.delete(fiber))
+    fiber.await(() => parent.children.delete(fiber))
     return fiber
   }
 
@@ -42,47 +64,35 @@ abstract class AbstractFiber extends Deferred implements Env {
     this.children.clear()
   }
 
-  getDynamic(dyn: number, cb: (err?: JasprError, val?: Jaspr) => void): void {
+  getDynamic(dyn: JasprDynamic, cb: Callback): void {
     let val = this.dynamics.get(dyn)
-    if (val === undefined) val = this.root().dynamics.get(dyn)
-    if (val !== undefined) waitFor(val, x => cb(undefined, x))
-    else cb({err: 'undefined dynamic variable', dynamic: dyn})
+    if (val === undefined) val = dyn.$default
+    waitFor(val, cb)
   }
 
   abstract root(): RootFiber
   abstract parent(): AbstractFiber
   abstract unhandledError(err: Jaspr, cb: Callback): void
-  abstract processId(): string
-  abstract makeChan(cb: (chan: number) => void): void
-  abstract send(chan: number, value: Jaspr, cb: (sent: boolean) => void): void
-  abstract recv(chan: number, cb: (err?: JasprError, val?: Jaspr) => void): void
-  abstract closeChan(chan: number, cb: (closed: boolean) => void): void
-  abstract isChanClosed(chan: number, cb: (closed: boolean) => void): void
-  abstract makeDynamic(defaultValue: Jaspr, cb: (dyn: number) => void): void
+  abstract testFailure(err: Error): void
 }
 
 export class RootFiber extends AbstractFiber {
-  nextDynamic = 0
-  nextChannel = 0
-  readonly channels = new Map<number, Chan>()
-  readonly id = uuid()
   readonly errorHandler: (root: RootFiber, err: Jaspr, cb: Callback) => void
+  readonly testFailureHandler: (err: Error) => void
 
   constructor(
     errorHandler: (root: RootFiber, err: Jaspr, cb: Callback) => void =
       (root, err, cb) => {
-        console.error('⚠ Unhandled Exception ⚠')
+        console.error('⚠ Unhandled Signal ⚠')
         console.error(toString(err))
         root.cancel()
-      }
+      },
+    testFailure: (err: Error) => void =
+      err => console.warn('Test assertion used outside of a unit test!')
   ) {
-    super(new Map<number, Jaspr>([
-      [Dynamics.error, {
-        [Names.closure]: {},
-        [Names.code]: [Names.unhandledError, [0, Names.args]]
-      }]
-    ]))
+    super()
     this.errorHandler = errorHandler
+    this.testFailureHandler = testFailure
   }
 
   parent() { return this }
@@ -91,43 +101,8 @@ export class RootFiber extends AbstractFiber {
   unhandledError(err: Jaspr, cb: Callback): void {
     this.errorHandler(this, err, cb)
   }
-  
-  processId() { return this.id }
 
-  makeChan(cb: (chan: number) => void): void {
-    const n = this.nextChannel++
-    this.channels.set(n, new Chan())
-    cb(n)
-  }
-
-  send(chan: number, value: Jaspr, cb: (sent: boolean) => void): void {
-    const c = this.channels.get(chan)
-    if (c) c.send(value, cb)
-    else cb(false)
-  }
-
-  recv(chan: number, cb: (err?: JasprError, val?: Jaspr) => void): void {
-    const c = this.channels.get(chan)
-    if (c) c.recv(cb)
-    else cb({err: 'channel closed'})
-  }
-
-  closeChan(chan: number, cb: (closed: boolean) => void): void {
-    const c = this.channels.get(chan)
-    if (c) c.close()
-    cb(this.channels.delete(chan))
-  }
-
-  isChanClosed(chan: number, cb: (closed: boolean) => void): void {
-    const c = this.channels.get(chan)
-    cb(c ? c.closed : false)
-  }
-
-  makeDynamic(defaultValue: Jaspr, cb: (dyn: number) => void): void {
-    const n = this.nextDynamic++
-    this.dynamics.set(n, defaultValue)
-    cb(n)
-  }
+  testFailure(err: Error): void { this.testFailureHandler(err) }
 }
 
 class Fiber extends AbstractFiber {
@@ -136,7 +111,7 @@ class Fiber extends AbstractFiber {
 
   constructor(
     parent: AbstractFiber,
-    dynamics: Map<number, Jaspr | Deferred> = new Map(),
+    dynamics: WeakMap<JasprDynamic, Jaspr | Deferred> = new WeakMap(),
     action = Action.External,
     code?: Jaspr | Deferred
   ) {
@@ -152,33 +127,8 @@ class Fiber extends AbstractFiber {
   parent() { return this._parent }
   root() { return this._root }
 
-  unhandledError(err: Jaspr, cb: Callback): void {
-    this._root.unhandledError(err, cb)
-  }
-  
-  processId() { return this._root.processId() }
-
-  makeChan(cb: (chan: number) => void) { this._root.makeChan(cb) }
-
-  send(chan: number, value: Jaspr, cb: (sent: boolean) => void) {
-    this._root.send(chan, value, cb)
-  }
-
-  recv(chan: number, cb: (err?: JasprError, val?: Jaspr) => void) {
-    this._root.recv(chan, cb)
-  }
-
-  closeChan(chan: number, cb: (closed: boolean) => void) {
-    this._root.closeChan(chan, cb)
-  }
-
-  isChanClosed(chan: number, cb: (closed: boolean) => void): void {
-    this._root.isChanClosed(chan, cb)
-  }
-
-  makeDynamic(defaultValue: Jaspr, cb: (dyn: number) => void): void {
-    this._root.makeDynamic(defaultValue, cb)
-  }
+  unhandledError(err: Jaspr, cb: Callback) {this._root.unhandledError(err, cb)}
+  testFailure(err: Error) {this._root.testFailure(err)}
 
   toString() {
     if (this.value !== undefined) return '<resolved: ' + toString(this.value) + '>'
@@ -188,9 +138,10 @@ class Fiber extends AbstractFiber {
 
 namespace Fiber {
   export function newRoot(
-    errorHandler?: (root: RootFiber, err: Jaspr, cb: Callback) => void
+    errorHandler?: (root: RootFiber, err: Jaspr, cb: Callback) => void,
+    testFailure?: (err: Error) => void
   ): RootFiber {
-    return new RootFiber(errorHandler)
+    return new RootFiber(errorHandler, testFailure)
   }
 }
 
