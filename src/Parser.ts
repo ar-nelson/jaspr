@@ -15,7 +15,7 @@ import * as _ from 'lodash'
 import * as XRegExp from 'xregexp'
 import {Json} from './Jaspr'
 import {
-  syntaxQuote, unquote, unquoteSplicing, assertEquals
+  syntaxQuote, unquote, unquoteSplicing, assertEqualsQualified
 } from './ReservedNames'
 
 export const number = XRegExp(`^
@@ -248,6 +248,7 @@ class Parser {
     }
     const loc = (): Parser.Location =>
       ({filename: this.filename, line: this.line, column: i - lastNewline})
+    const err = (msg: string) => new Parser.ParseError(msg, loc())
 
     // The parser is written as a single, gigantic while loop. Not the easiest
     // to read, but it's FAST, and it isn't subject to stack overflows when
@@ -289,9 +290,7 @@ class Parser {
           if (expr === undefined) expr = this.frame.contents[0]
           break
         default:
-          throw new Parser.ParseError(
-            `close behavior not configured for state ${this.frame.type}`,
-            loc())
+          throw err(`close behavior not configured for state ${this.frame.type}`)
         }
         popped = this.stack.pop()
         if (popped) {
@@ -316,8 +315,7 @@ class Parser {
         } else if (c === '\\') {
           const escape = str.charAt(++i)
           const result = escapes.get(escape)
-          if (result === undefined) throw new Parser.ParseError(
-            `invalid escape: \\${escape}`, loc())
+          if (result === undefined) throw err(`invalid escape: \\${escape}`)
           this.frame.contents[0] += result
         } else {
           if (c === '\n') {
@@ -361,7 +359,7 @@ class Parser {
                 subParser.read(rhs, {filename, line, column: c + offset.length})
                 const rhsValue = subParser.getOneResult()
                 this.frame.contents[this.frame.contents.length - 1] = [
-                  assertEquals,
+                  assertEqualsQualified,
                   this.frame.contents[this.frame.contents.length - 1],
                   ['', rhsValue]]
               }
@@ -382,7 +380,7 @@ class Parser {
                 depth++
                 j += open.length
               } else if (j >= end) {
-                throw new Parser.ParseError('unclosed block comment', loc())
+                throw err('unclosed block comment')
               } else j++
             }
           }
@@ -433,8 +431,7 @@ class Parser {
       // without the additional quoting behavior found in parenthesized arrays.
       // ═══════════════════════════════════════════════════════════════════════
       else if (openBracket.test(c)) {
-        if (this.frame.key) throw new Parser.ParseError(
-          'expected object key, got open bracket', loc())
+        if (this.frame.key) throw err('expected object key, got open bracket')
         this.stack.push(this.frame)
         this.frame = {
           type: T.Bracket,
@@ -454,8 +451,7 @@ class Parser {
       // like symbols/strings in Lisp.
       // ═══════════════════════════════════════════════════════════════════════
       else if (openParen.test(c)) {
-        if (this.frame.key) throw new Parser.ParseError(
-          'expected object key, got open paren', loc())
+        if (this.frame.key) throw err('expected object key, got open paren')
         this.stack.push(this.frame)
         this.frame = {
           type: T.Paren,
@@ -475,8 +471,7 @@ class Parser {
       // the value will be the same as the key.
       // ═══════════════════════════════════════════════════════════════════════
       else if (openBrace.test(c)) {
-        if (this.frame.key) throw new Parser.ParseError(
-          'expected object key, got open brace', loc())
+        if (this.frame.key) throw err('expected object key, got open brace')
         this.stack.push(this.frame)
         this.frame = {
           type: T.Brace,
@@ -515,14 +510,14 @@ class Parser {
       else if (comma.test(c)) {
         switch (this.frame.type) {
           case T.Prefix:
-            throw new Parser.ParseError('unexpected comma after quote', loc())
+            throw err('unexpected comma after quote')
           case T.Brace:
             this.frame.key = true
         }
         if (this.frame.lastComma) {
-          throw new Parser.ParseError('duplicate comma', loc())
+          throw err('duplicate comma')
         } if (this.frame.contents.length === 0) {
-          throw new Parser.ParseError('comma before first element', loc())
+          throw err('comma before first element')
         } if (!this.frame.commas && this.frame.contents.length > 1) {
           throw new Parser.ParseError(
             'unexpected comma (no commas between previous elements)', loc())
@@ -541,23 +536,21 @@ class Parser {
       else if (colon.test(c)) {
         if (this.frame.type === T.Root) {
           if (this.frame.contents.length !== 1) {
-            throw new Parser.ParseError(
-              'misplaced colon for top-level object', loc())
+            throw err('misplaced colon for top-level object')
           } else if (typeof this.frame.contents[0] !== 'string') {
-            throw new Parser.ParseError(
-              'top-level colon after non-string expression', loc())
+            throw err('top-level colon after non-string expression')
           }
           this.frame.type = T.Brace
           this.frame.key = true
         }
         if (this.frame.type !== T.Brace) {
-          throw new Parser.ParseError('unexpected colon in non-object', loc())
+          throw err('unexpected colon in non-object')
         } if (this.frame.contents.length === 0) {
-          throw new Parser.ParseError('expected object key, got colon', loc())
+          throw err('expected object key, got colon')
         } if (this.frame.lastComma) {
-          throw new Parser.ParseError('unexpected colon after comma', loc())
+          throw err('unexpected colon after comma')
         } if (!this.frame.key) {
-          throw new Parser.ParseError('duplicate colon', loc())
+          throw err('duplicate colon')
         }
         this.frame.lastComma = true
         this.frame.key = false
@@ -607,8 +600,7 @@ class Parser {
       // syntax-quote, etc.)
       // ═══════════════════════════════════════════════════════════════════════
       if (expr === undefined) {
-        throw new Parser.ParseError(
-          'expr is undefined -- this should never happen!', loc())
+        throw err('expr is undefined -- this should never happen!')
       }
       while (true) {
         if (!this.frame.lastComma && this.frame.commas) {
@@ -627,8 +619,7 @@ class Parser {
         case T.Brace:
           if (this.frame.key) {
             if (typeof expr === 'string') this.frame.contents.push(expr)
-            else throw new Parser.ParseError(
-              `expected object key, got non-string value ${expr}`, loc())
+            else throw err(`expected object key, got non-string value ${expr}`)
           } else {
             this.frame.key = true
             this.frame.contents.push([<Json>this.frame.contents.pop(), expr])

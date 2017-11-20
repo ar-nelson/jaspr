@@ -1,129 +1,138 @@
 import {
-  Jaspr, JasprArray, JasprObject, Scope, Callback, resolveFully, toString,
-  Deferred, JsonObject, emptyScope
+  Jaspr, JasprArray, JasprObject, Callback, resolveFully, toString,
+  Deferred, JsonObject, Err
 } from '../src/Jaspr'
-import Fiber from '../src/Fiber'
-//import {currentSchema, evalModule} from '../src/Module'
 import {
-  Env, Action, raise, evalExpr, macroExpand, evalDefs, deferExpandEval
+  Env, Action, Scope, emptyScope, raise, evalExpr, macroExpand, evalDefs,
+  deferExpandEval, waitFor
 } from '../src/Interpreter'
+import Fiber from '../src/Fiber'
+import newPrimitiveModule from '../src/JasprPrimitive'
+import prettyPrint from '../src/PrettyPrint'
+import {NativeFn} from '../src/NativeFn'
+import {importModule} from '../src/Module'
 import * as _ from 'lodash'
 import * as assert from 'assert'
-import {expect as chaiExpect} from 'chai'
+import {expect} from 'chai'
 require('source-map-support').install({
   handleUncaughtExceptions: false
 })
 
-function waitFor(v: Jaspr | Deferred, cb: Callback): void {
-  if (v instanceof Deferred) v.await(cb)
-  else cb(v)
+export interface Should<CB> {
+  equal(value: Jaspr): CB
+  pass<T extends Jaspr>(assertions: (result: T, done?: () => void) => void): CB
 }
 
-export type TestCallback = (err: Jaspr, result: Jaspr) => void
-export type TestCase = (done: () => void, name?: string) => void
+export class TestCase implements Should<Callback> {
+  promises: PromiseLike<any>[] = []
+  readonly env: Env
 
-export class Expect {
-  fn: (cb: TestCallback) => void
-  constructor(fn: (cb: TestCallback) => void) {
-    this.fn = fn
+  constructor(env: Env) {
+    this.env = env
   }
 
-  toEqual(value: Jaspr): TestCase {
-    return (done, name?) => this.fn((err, result) => {
-      if (err == null) {
-        if (name) {
-          try { chaiExpect(result).to.deep.equal(value) }
-          catch (e) {
-            e.message = `(in "${name}"): ${e.message}`
-            throw e
-          }
-        } else chaiExpect(value).to.deep.equal(value)
-      } else {
-        assert(false, (name ? `(in "${name}"): ` : '') + toString(err))
+  pushPromise(): () => {resolve: () => void, reject: (err: any) => void} {
+    let resolve: any = null, reject: any = null
+    this.promises.push(new Promise<void>((resolve_, reject_) => {
+      resolve = resolve_; reject = reject_
+    }))
+    return () => {
+      if (resolve == null || reject == null) {
+        console.error(
+          'Promise resolve/reject not available. This should never happen!')
+        process.exit(1)
       }
-      done()
+      return {resolve, reject}
+    }
+  } 
+
+  equal(value: Jaspr): Callback {
+    const resolvers = this.pushPromise()
+    return result => resolveFully(result, (err, result) => {
+      const {resolve, reject} = resolvers()
+      try { expect(result).to.deep.equal(value) }
+      catch (err) { reject(err); return }
+      resolve()
     })
   }
 
-  toThrow(predicate: (err: Jaspr) => boolean = () => true): TestCase {
-    return (done, name?) => this.fn((err, result) => {
-      if (err === null) {
-        assert(false,
-          `${name ? name + ': ' : ''}Expected error, got result ${toString(result)}`)
-      } else {
-        assert(predicate(err),
-          `${name ? name + ': ' : ''}Expected error, but got the wrong kind: ${toString(err)}`)
-      }
-      done()
+  pass<T extends Jaspr>(assertions: (result: T, done: () => void) => void): Callback {
+    const resolvers = this.pushPromise()
+    return result => resolveFully(result, (err, result) => {
+      const {resolve, reject} = resolvers()
+      try {
+        if (assertions.length <= 1) {
+          assertions(<T>result, <any>null)
+          resolve()
+        } else assertions(<T>result, resolve)
+      } catch (err) { reject(err) }
     })
   }
 
-  toPass(assertions: (result: Jaspr, done?: () => void) => void): TestCase {
-    return (done, name?) => this.fn((err, result) => {
-      if (err === null) {
-        if (assertions.length > 1) assertions(result, done)
-        else {
-          assertions(result)
-          done()
+  raise(errType: Err, fn: (env: Env, cb: Callback) => void): void {
+    const resolvers = this.pushPromise()
+    const handler = new NativeFn(function*(signal) {
+      const {resolve, reject} = resolvers()
+      const err = yield signal
+      try {
+        expect(err).to.be.an('object')
+        expect(err).to.have.property('err').equal(errType, 'wrong error type')
+      } catch (err) {reject(err)}
+      resolve()
+      return null
+    })
+    this.env.defer({
+      fn, dynamics: [[this.env.signalHandlerVar, handler.toClosure(this.env)]]
+    }).await(v => resolvers().reject(new assert.AssertionError({
+      message: 'no error was raised',
+      actual: v,
+      expected: {err: errType}
+    })))
+  }
+
+  get withoutError(): Should<AsyncResultCallback<Jaspr, any>> {
+    const should = this
+    return {
+      equal(value: Jaspr) {
+        const resolvers = should.pushPromise(), cb = should.equal(value)
+        return (err, result) => {
+          const {resolve, reject} = resolvers()
+          if (err) return reject(err)
+          cb(<Jaspr>result)
+          resolve()
         }
-      } else assert(false, toString(err))
-    })
-  }
-}
-
-function expectContext(fn: (env: Env, cb: Callback) => void): Expect {
-  let errCb: TestCallback
-  let errored = false
-  const root = Fiber.newRoot((root, err, cb) => {
-    if (errored) return cb(null)
-    errored = true
-    resolveFully(err, (re, err) => errCb(err, null))
-    // don't cancel; remaining fibers should crash on their own
-  })
-  return new Expect(cb => {
-    errCb = cb
-    fn(root, result => resolveFully(result, cb))
-  })
-}
-
-export const expect = {
-  eval(scope: Scope, code: Jaspr): Expect {
-    return expectContext((env, cb) => env.defer({
-      action: Action.Eval, code,
-      fn: (env, cb) => evalExpr(env, scope, code, cb)
-    }).await(cb))
-  },
-  macroExpand(scope: Scope, code: Jaspr): Expect {
-    return expectContext((env, cb) => env.defer({
-      action: Action.MacroExpand, code,
-      fn: (env, cb) => macroExpand(env, scope, code, cb)
-    }).await(cb))
-  },
-  fullEval(scope: Scope, code: Jaspr): Expect {
-    return expectContext((env, cb) => deferExpandEval(env, scope, code).await(cb))
-  }
-}
-
-export function withDefs(
-  defs: JsonObject,
-  fn: (scope: Scope) => (done: () => void) => void
-): TestCase {
-  return expectContext((env, cb) =>
-    evalDefs(env, undefined, emptyScope, defs, (err, scope) => {
-      if (err) raise(env, err, cb)
-      else cb(<Jaspr>scope)
-    })
-  ).toPass(<any>((scope: Scope, done: () => void) => fn(scope)(done)))
-}
-
-export function cases(cs: {[name: string]: TestCase}): (done: () => void) => void {
-  return done => {
-    const iter = (function*(): IterableIterator<void> {
-      for (let name in cs) {
-        yield cs[name](() => setImmediate(() => iter.next()), name)
+      },
+      pass<T extends Jaspr>(assertions: (result: T, done?: () => void) => void) {
+        const resolvers = should.pushPromise(), cb = should.pass(assertions)
+        return (err, result) => {
+          const {resolve, reject} = resolvers()
+          if (err) return reject(err)
+          cb(<Jaspr>result)
+          resolve()
+        }
       }
-      done()
-    })()
-    iter.next()
+    }
   }
 }
+
+export const withEnv = (body: (env: Env, should: TestCase) => void) => () =>
+  new Promise<void>((resolve, reject) => {
+    let errored = false
+    const root = Fiber.newRoot((root, err, raisedBy, cb) => {
+      if (errored) return cb(null)
+      errored = true
+      reject(new assert.AssertionError({
+        message: `
+Unhandled signal raised:
+${prettyPrint(err, false)}
+
+Stack trace:
+${raisedBy.stackTraceString(false)}`
+      }))
+      root.cancel()
+    })
+    const testCase = new TestCase(root)
+    body(root, testCase)
+    expect(testCase.promises).to.not.be.empty
+    Promise.all(testCase.promises).then(() => resolve(), reject)
+  })

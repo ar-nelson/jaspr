@@ -1,32 +1,40 @@
 import {AssertionError} from 'assert'
 import {waterfall} from 'async'
 import {expect} from 'chai'
-import {Jaspr, JasprError, resolveFully, toString} from '../src/Jaspr'
+import {Jaspr, JasprError, resolveFully, toString, magicSymbol} from '../src/Jaspr'
 import Fiber from '../src/Fiber'
+import prettyPrint from '../src/PrettyPrint'
+import * as Names from '../src/ReservedNames'
+import prim from '../src/JasprPrimitive'
 import {
   readModuleFile, evalModule, importModule, ModuleSource, Module
 } from '../src/Module'
 
 function loadModule(
-  filename: string, assertions: (module: Module) => void
+  filename: string,
+  importedAs: string | null,
+  assertions: (module: Module) => void
 ): () => Promise<void> {
   return () => new Promise((resolve, reject) => {
-    function fail(msg: string, err: Jaspr): void {
-      reject(new AssertionError({message: msg + ': ' + toString(err)}))
+    function fail(msg: string, err: Jaspr, raisedBy?: Fiber): void {
+      reject(new AssertionError({
+        message: `\n${msg}: ${prettyPrint(err, false)}` +
+          (raisedBy ? `\n\nStack trace:\n${raisedBy.stackTraceString(false)}` : '')
+      }))
     }
-    const env = Fiber.newRoot((root, err, cb) => {
-      resolveFully(err, (resErr, err) => {
-        if (err) return fail('error evaluating module', err)
-        cb(null)
-      })
+    const env = Fiber.newRoot((root, err, raisedBy, cb) => {
+      fail('Error evaluating module', err, raisedBy)
+      root.cancel()
     })
     waterfall<Module, JasprError>([
       (cb: any) => readModuleFile(`test/modules/${filename}`, cb),
-      (mod: ModuleSource, cb: any) => evalModule(env, mod, {filename}, cb),
-      (mod: Module, cb: any) => importModule(mod, filename, cb),
-      resolveFully,
+      (mod: ModuleSource, cb: any) => evalModule(env, mod, {
+          filename, localModules: new Map([[Names.primitiveModule, prim(env)]])
+        }, cb),
+      (mod: Module, cb: any) =>
+        resolveFully(importedAs ? importModule(mod, importedAs) : mod, cb)
     ], (err, mod) => {
-      if (err) return fail('error loading module', <JasprError>err)
+      if (err) return fail('Error loading module', <JasprError>err)
       try { assertions(<Module>mod) }
       catch (ex) { reject(ex); return }
       resolve()
@@ -35,21 +43,37 @@ function loadModule(
 }
 
 describe('the module loader', () => {
-  it('can load a module', loadModule('hello-world.jaspr', mod => {
+  it('can load a module', loadModule('hello-world.jaspr', null, mod => {
     expect(mod.$module).to.equal('jaspr-tests.hello-world')
+    expect(mod.$version).to.equal('1.0')
     expect(mod.$export).to.deep.equal({'hello-world': 'hello-world'})
     expect(mod.value).to.have.property('hello-world').equal('Hello, world!')
     expect(mod.value).to.have.property('jaspr-tests.hello-world.hello-world').equal('Hello, world!')
-    expect(mod.qualified).to.have.property('hello-world').equal('jaspr-tests.hello-world.hello-world')
+    expect(mod.value).to.have.property('jaspr-tests.hello-world.hello-world@1.0').equal('Hello, world!')
+    expect(mod.qualified).to.have.property('jaspr-tests.hello-world.hello-world').equal('jaspr-tests.hello-world.hello-world@1.0')
+    expect(mod.qualified).to.have.property('hello-world').equal('jaspr-tests.hello-world.hello-world@1.0')
   }))
-  it('handles recursive functions', loadModule('recursive-fn.jaspr', mod => {
+  it('can load a module as a named import', loadModule('hello-world.jaspr', 'hello', mod => {
+    expect(mod).to.not.have.property('$module')
+    expect(mod).to.not.have.property('$export')
+    expect(mod.value).to.have.property('hello-world').equal('Hello, world!')
+    expect(mod.value).to.have.property('hello.hello-world').equal('Hello, world!')
+    expect(mod.value).to.have.property('jaspr-tests.hello-world.hello-world@1.0').equal('Hello, world!')
+    expect(mod.value).to.not.have.property('jaspr-tests.hello-world.hello-world')
+    expect(mod.value).to.not.have.property('hello.hello-world@1.0')
+    expect(mod.qualified).to.have.property('hello-world').equal('jaspr-tests.hello-world.hello-world@1.0')
+    expect(mod.qualified).to.have.property('hello.hello-world').equal('jaspr-tests.hello-world.hello-world@1.0')
+    expect(mod.qualified).to.not.have.property('jaspr-tests.hello-world.hello-world')
+  }))
+  it('handles recursive functions', loadModule('recursive-fn.jaspr', null, mod => {
     expect(mod.$module).to.equal('jaspr-tests.recursive-fn')
+    expect(mod.$version).to.equal('1.0')
     expect(mod.value).to.have.property('factorial').be.an('object')
     expect(mod.value).to.have.property('five-factorial').equal(120)
     expect(mod.value).to.have.property('jaspr-tests.recursive-fn.five-factorial').equal(120)
-    expect(mod.qualified).to.have.property('factorial').equal('jaspr-tests.recursive-fn.factorial')
+    expect(mod.qualified).to.have.property('factorial').equal('jaspr-tests.recursive-fn.factorial@1.0')
   }))
-  it('can load macros', loadModule('macros.jaspr', mod => {
+  it('can load macros', loadModule('macros.jaspr', null, mod => {
     expect(mod.$module).to.equal('jaspr-tests.macros')
     expect(mod.macro).to.have.property('quote').be.an('object')
     expect(mod.macro).to.have.property('jaspr-tests.macros.quote').be.an('object')
@@ -59,33 +83,33 @@ describe('the module loader', () => {
     expect(mod.value).to.not.have.property('jaspr-tests.macros.quote')
     expect(mod.value).to.have.property('quoted').equal('quoted-value')
     expect(mod.value).to.have.property('jaspr-tests.macros.quoted').equal('quoted-value')
-    expect(mod.qualified).to.have.property('quote').equal('jaspr-tests.macros.quote')
-    expect(mod.qualified).to.have.property('quoted').equal('jaspr-tests.macros.quoted')
+    expect(mod.qualified).to.have.property('quote').equal('jaspr-tests.macros.quote@1.0')
+    expect(mod.qualified).to.have.property('quoted').equal('jaspr-tests.macros.quoted@1.0')
   }))
-  it('can load literate modules', loadModule('simple-literate.jaspr.md', mod => {
+  it('can load literate modules', loadModule('simple-literate.jaspr.md', null, mod => {
     expect(mod.$module).to.equal('jaspr-tests.simple-literate')
     expect(mod.value).to.have.property('indented').equal('indented-value')
     expect(mod.value).to.have.property('fenced').equal('fenced-value')
   }))
-  /*it('extracts tests from literate modules', loadModule('literate-tests.jaspr.md', mod => {
+  it('extracts tests from literate modules', loadModule('literate-tests.jaspr.md', null, mod => {
     expect(mod.$module).to.equal('jaspr-tests.literate-tests')
     expect(mod.value).to.be.empty
     expect(mod.test).to.be.an('object')
     expect(mod.test).to.have.property('Literate-Program-with-Tests-0').equal(true)
     expect(mod.test).to.have.property('Literate-Program-with-Tests-1').deep.equal(
-      ['$equals', ['$add', 2, 2], 4])
+      ['jaspr.primitive.is?', ['jaspr.primitive.add', 2, 2], 4])
     expect(mod.test).to.have.property('Heading-1-0').deep.equal(
-      ['$assertEquals', ['$add', 2, 2], ['', 4]])
+      [Names.assertEqualsQualified, ['jaspr.primitive.add', 2, 2], ['', 4]])
     expect(mod.test).to.have.property('Heading-2-0').deep.equal(
-      ['$assertEquals', [[], ['', 'a'], ['', 'b'], ['', 'c']], ['', ['a', 'b', 'c']]])
-  }))*/
-  it('loads included files', loadModule('has-includes.jaspr', mod => {
+      [Names.assertEqualsQualified, [[], ['', 'a'], ['', 'b'], ['', 'c']], ['', ['a', 'b', 'c']]])
+  }))
+  it('loads included files', loadModule('has-includes.jaspr', null, mod => {
     expect(mod.$module).to.equal('jaspr-tests.has-includes')
     expect(mod.value).to.have.property('original').equal('original-value')
     expect(mod.value).to.have.property('included').equal('included-value')
     expect(mod.$export).to.deep.equal({original: 'original', included: 'included'})
   }))
-  it('handles recursive includes', loadModule('has-recursive-include.jaspr', mod => {
+  it('handles recursive includes', loadModule('has-recursive-include.jaspr', null, mod => {
     expect(mod.$module).to.equal('jaspr-tests.has-recursive-include')
     expect(mod.value).to.have.property('original').equal('original-value')
     expect(mod.value).to.have.property('included').equal('included-value')

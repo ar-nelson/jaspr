@@ -1,325 +1,423 @@
-import {expect, cases, withDefs} from './Helpers'
+import {withEnv} from './Helpers'
 import {
-  Jaspr, JasprObject, JasprClosure, JsonObject, Scope, resolveFully,
-  isClosure, Deferred, emptyScope, makeDynamic
+  Jaspr, JasprObject,  JsonObject, resolveFully, Deferred
 } from '../src/Jaspr'
+import {
+  Env, Scope, emptyScope, makeDynamic, isClosure, evalExpr, macroExpand,
+  evalDefs, deferExpandEval
+} from '../src/Interpreter'
 import * as Names from '../src/ReservedNames'
+import {NativeFn} from '../src/NativeFn'
 import * as _ from 'lodash'
-import * as chai from 'chai'
+import {expect} from 'chai'
 
 const sq = Names.syntaxQuote, uq = Names.unquote, uqs = Names.unquoteSplicing
 
-function closure(fn: Jaspr, scope=emptyScope): JsonObject & JasprClosure {
-  return <any>{[Names.code]: fn, [Names.closure]: scope}
-}
 function values(value: JasprObject): Scope {
   return _.create(emptyScope, {value})
 }
 function macros(macro: JasprObject): Scope {
   return _.create(emptyScope, {macro})
 }
-const add1 = closure(['$add', 1, [0, '$args']])
-const macro_add1 = closure([[], ['', 'add1'], [0, '$args']])
-const macro_array_add1 =
-  closure([[], [[], ['', 'add1'], [0, '$args']], [[], ['', 'add1'], [1, '$args']]])
+function closure(env: Env, code: Jaspr, scope: JasprObject = {}): JasprObject {
+  return {
+    [env.closureName]: scope,
+    [Names.code]: code
+  }
+}
+const add1 = (env: Env) => ({
+  add1: new NativeFn(function*(n) { return 1 + (yield n) }).toClosure(env)
+})
+const macroAdd1 = (env: Env) =>
+  ({macroAdd1: closure(env, [[], ['', 'add1'], [0, Names.args]])})
+const macroArrayAdd1 = (env: Env) => ({
+  macroArrayAdd1: closure(env,
+    [[], [], [[], ['', 'add1'], [0, Names.args]], [[], ['', 'add1'], [1, Names.args]]])
+})
 const dyn = makeDynamic(false)
 
 describe('eval', () => {
-  it('evaluates null, booleans, numbers, and empty structures as themselves', cases({
-    "null": expect.eval(emptyScope, null).toEqual(null),
-    "true": expect.eval(emptyScope, true).toEqual(true),
-    "false": expect.eval(emptyScope, false).toEqual(false),
-    "0": expect.eval(emptyScope, 0).toEqual(0),
-    "91": expect.eval(emptyScope, 91).toEqual(91),
-    "empty string": expect.eval(emptyScope, "").toEqual(""),
-    "empty array": expect.eval(emptyScope, []).toEqual([]),
-    "empty object": expect.eval(emptyScope, {}).toEqual({})
+  it('evaluates null, booleans, numbers, and empty structures as themselves',
+    withEnv((env, should) => {
+      evalExpr(env, emptyScope, null, should.equal(null))
+      evalExpr(env, emptyScope, true, should.equal(true))
+      evalExpr(env, emptyScope, false, should.equal(false))
+      evalExpr(env, emptyScope, 0, should.equal(0))
+      evalExpr(env, emptyScope, 91, should.equal(91))
+      evalExpr(env, emptyScope, '', should.equal(''))
+      evalExpr(env, emptyScope, [], should.equal([]))
+      evalExpr(env, emptyScope, {}, should.equal({}))
+    }))
+  it('resolves strings as variables', withEnv((env, should) => {
+    evalExpr(env, values({foo: 1}), 'foo', should.equal(1))
+    evalExpr(env, values({foo: 'bar'}), 'foo', should.equal('bar'))
+    evalExpr(env, values({foo: 'foo'}), 'foo', should.equal('foo'))
+    evalExpr(env, values({foo: ['foo', 'bar']}), 'foo', should.equal(['foo', 'bar']))
+    evalExpr(env, values({bar: ['foo', 'bar']}), 'bar', should.equal(['foo', 'bar']))
+    evalExpr(env, values({a: 1, b: 2, c: 3}), 'b', should.equal(2))
   }))
-  it('resolves strings as variables', cases({
-    "foo = 1": expect.eval(values({foo: 1}), "foo").toEqual(1),
-    "foo = bar": expect.eval(values({foo: "bar"}), "foo").toEqual("bar"),
-    "foo = foo": expect.eval(values({foo: "foo"}), "foo").toEqual("foo"),
-    "foo = [foo, bar]": expect.eval(values({foo: ["foo", "bar"]}), "foo").toEqual(["foo", "bar"]),
-    "bar = [foo, bar]": expect.eval(values({bar: ["foo", "bar"]}), "bar").toEqual(["foo", "bar"]),
-    "{a, b, c} = {1, 2, 3}": expect.eval(values({a: 1, b: 2, c: 3}), "b").toEqual(2)
+  it('raises NoBinding when variable cannot be resolved', withEnv((env, should) =>
+    should.raise('NoBinding', (env, cb) =>
+      evalExpr(env, emptyScope, 'foo', cb))))
+  it('does not evaluate quoted code', withEnv((env, should) => {
+    evalExpr(env, emptyScope, ['', 1], should.equal(1))
+    evalExpr(env, emptyScope, ['', 'foo'], should.equal('foo'))
+    evalExpr(env, emptyScope, ['', ['', 'foo']], should.equal(['', 'foo']))
+    evalExpr(env, emptyScope, ['', [sq, 'foo']], should.equal([sq, 'foo']))
+    evalExpr(env, values({foo: 'bar'}), ['', 'foo'], should.equal('foo'))
+    evalExpr(env, values({foo: 'bar'}), ['', ['foo', 'bar', 'baz']],
+      should.equal(['foo', 'bar', 'baz']))
+    evalExpr(env, values({foo: 'bar'}), ['', {bar: 'foo', baz: 'quux'}],
+      should.equal({bar: 'foo', baz: 'quux'}))
   }))
-  it('throws when variable cannot be resolved', expect.eval(emptyScope, "foo").toThrow())
-  it('does not evaluate quoted code', cases({
-    "'1": expect.eval(emptyScope, ['', 1]).toEqual(1),
-    "'foo": expect.eval(emptyScope, ['', "foo"]).toEqual("foo"),
-    "''foo": expect.eval(emptyScope, ['', ['', "foo"]]).toEqual(['', "foo"]),
-    "'`foo":  expect.eval(emptyScope, ['', [sq, "foo"]]).toEqual([sq, "foo"]),
-    "'foo w/ foo in scope":
-      expect.eval(values({foo: "bar"}), ['', "foo"]).toEqual("foo"),
-    "'(foo bar baz) w/ foo in scope":
-      expect.eval(values({foo: "bar"}), ['', ["foo", "bar", "baz"]])
-            .toEqual(["foo", "bar", "baz"]),
-    "'{bar: foo, baz: quux} w/ foo in scope":
-      expect.eval(values({foo: "bar"}), ['', {bar: "foo", baz: "quux"}])
-            .toEqual({bar: "foo", baz: "quux"})
+  it('indexes into arrays by calling numbers as functions', withEnv((env, should) => {
+    evalExpr(env, emptyScope, [0, ['', ['foo', 'bar']]], should.equal('foo'))
+    evalExpr(env, emptyScope, [1, ['', ['foo', 'bar']]], should.equal('bar'))
+    should.raise('NoKey', (env, cb) =>
+      evalExpr(env, emptyScope, [2, ['', ['foo', 'bar']]], cb))
   }))
-  it('indexes into arrays by calling numbers as functions', cases({
-    "0": expect.eval(emptyScope, [0, ['', ["foo", "bar"]]]).toEqual("foo"),
-    "1": expect.eval(emptyScope, [1, ['', ["foo", "bar"]]]).toEqual("bar"),
-    "2": expect.eval(emptyScope, [2, ['', ["foo", "bar"]]]).toThrow()
+  it('supports negative array indices', withEnv((env, should) => {
+    evalExpr(env, emptyScope, [-1, ['', ['foo', 'bar']]], should.equal('bar'))
+    evalExpr(env, emptyScope, [-2, ['', ['foo', 'bar']]], should.equal('foo'))
   }))
-  it('supports negative array indices', cases({
-    "-1": expect.eval(emptyScope, [-1, ['', ["foo", "bar"]]]).toEqual("bar"),
-    "-2": expect.eval(emptyScope, [-2, ['', ["foo", "bar"]]]).toEqual("foo")
+  it('indexes into objects by calling strings as functions', withEnv((env, should) => {
+    evalExpr(env, emptyScope, [['', 'a'], {a: 1, b: 2}], should.equal(1))
+    evalExpr(env, emptyScope, [['', 'b'], {a: 1, b: 2}], should.equal(2))
+    should.raise('NoKey', (env, cb) =>
+      evalExpr(env, emptyScope, [['', 'c'], {a: 1, b: 2}], cb))
   }))
-  it('indexes into objects by calling strings as functions', cases({
-    "a": expect.eval(emptyScope, [['', "a"], {a: 1, b: 2}]).toEqual(1),
-    "b": expect.eval(emptyScope, [['', "b"], {a: 1, b: 2}]).toEqual(2),
-    "c": expect.eval(emptyScope, [['', "c"], {a: 1, b: 2}]).toThrow()
-  }))
-  it('does not leak JavaScript properties via object indexing', cases({
-    "String.length": expect.eval(emptyScope, [['', "length"], ['', "foo"]]).toThrow(),
-    "Array.length": expect.eval(emptyScope, [['', "length"], ['', [1, 2]]]).toThrow(),
-    "Object.hasOwnProperty": expect.eval(emptyScope, [['', "hasOwnProperty"], {a: 1, b: 2}]).toThrow()
+  it('does not leak JavaScript properties via object indexing', withEnv((env, should) => {
+    should.raise('BadArgs', (env, cb) =>
+      evalExpr(env, emptyScope, [['', 'length'], ['', 'foo']], cb))
+    should.raise('BadArgs', (env, cb) =>
+      evalExpr(env, emptyScope, [['', 'length'], ['', [1, 2]]], cb))
+    should.raise('NoKey', (env, cb) =>
+      evalExpr(env, emptyScope, [['', 'hasOwnProperty'], {a: 1, b: 2}], cb))
   }))
   describe('closure', () => {
-    it('can be called inline', expect.eval(emptyScope, [['', closure(91)]]).toEqual(91))
-    it('loads its own scope',
-      expect.eval(emptyScope, [['', closure("foo", values({foo: 1}))]]).toEqual(1))
-    it('replaces the callsite scope',
-      expect.eval(values({foo: 1}), [['', closure("foo", values({foo: 2}))]]).toEqual(2))
-    it('cannot access the callsite scope',
-      expect.eval(values({foo: 1}), [['', closure("foo")]]).toThrow())
-    it('stores arguments array in $args',
-      expect.eval(emptyScope, [['', closure([1, "$args"])],
-                              ['', "foo"],
-                              ['', "bar"],
-                              ['', "baz"]]).toEqual("bar"))
+    it('can be called inline', withEnv((env, should) =>
+      evalExpr(env, emptyScope, [['', closure(env, 91)]], should.equal(91))))
+    it('loads its own scope', withEnv((env, should) =>
+      evalExpr(env, emptyScope, [['', closure(env, 'foo', values({foo: 1}))]],
+        should.equal(1))))
+    it('replaces the callsite scope', withEnv((env, should) =>
+      evalExpr(env, values({foo: 1}), [['', closure(env, 'foo', values({foo: 2}))]],
+        should.equal(2))))
+    it('cannot access the callsite scope', withEnv((env, should) =>
+      should.raise('NoBinding', (env, cb) =>
+        evalExpr(env, values({foo: 1}), [['', closure(env, 'foo')]], cb))))
+    it('stores arguments array in $args', withEnv((env, should) =>
+      evalExpr(env, emptyScope, [['', closure(env, [1, '$args'])],
+                                 ['', 'foo'],
+                                 ['', 'bar'],
+                                 ['', 'baz']], should.equal('bar'))))
   })
-  describe('supports builtin function', () => {
-    it('$if', cases({
-      "then": expect.eval(emptyScope, ["$if", true, 1, 2]).toEqual(1),
-      "else": expect.eval(emptyScope, ["$if", false, 1, 2]).toEqual(2)
+  describe('supports magic form', () => {
+    it('$if', withEnv((env, should) => {
+      evalExpr(env, emptyScope, ['$if', true, 1, 2], should.equal(1))
+      evalExpr(env, emptyScope, ['$if', false, 1, 2], should.equal(2))
     }))
-    it('$closure', cases({
-      "create closure":
-        expect.eval(values({a:1, b: 2}), ["$closure", {}, ["+", 1, 2], {}]).toPass(cl => {
-          const {expect} = chai
+    it('$closure', withEnv((env, should) => {
+      evalExpr(env, values({a:1, b: 2}), ['$closure', {}, ['+', 1, 2], {}],
+        should.pass(cl => {
           expect(cl).to.be.an('object')
-          expect(cl).to.have.property(Names.closure).be.an('object')
-          expect(cl).to.have.property(Names.code).deep.equal(["+", 1, 2])
-          const sc = (<any>cl)[Names.closure]
+          expect(cl).to.have.property(env.closureName).be.an('object')
+          expect(cl).to.have.property(Names.code).deep.equal(['+', 1, 2])
+          const sc = (<any>cl)[env.closureName]
           expect(sc).to.have.property('value').be.an('object')
           expect(sc.value).to.have.property('a').equal(1)
           expect(sc.value).to.have.property('b').equal(2)
-        }),
-      "extend parent scope":
-        expect.eval(values({a: 1, b: 2}), ["$closure", {c: 3}, null, {}]).toPass(cl => {
-          const {expect} = chai, sc = (<any>cl)[Names.closure]
+        }))
+      evalExpr(env, values({a: 1, b: 2}), ['$closure', {c: 3}, null, {}],
+        should.pass(cl => {
+          const sc = (<any>cl)[env.closureName]
           expect(sc).to.be.an('object')
           expect(sc).to.have.property('value').be.an('object')
           expect(sc.value).to.have.property('a').equal(1)
           expect(sc.value).to.have.property('b').equal(2)
           expect(sc.value).to.have.property('c') // won't be resolved...
-        }),
-      "shadow binding in parent scope":
-        expect.eval(values({a: 1, b: 2}), ["$closure", {a: 3}, null, {}]).toPass(cl => {
-          const {expect} = chai, sc = (<any>cl)[Names.closure]
+        }))
+      evalExpr(env, values({a: 1, b: 2}), ['$closure', {a: 3}, null, {}],
+        should.pass(cl => {
+          const sc = (<any>cl)[env.closureName]
           expect(sc).to.be.an('object')
           expect(sc).to.have.property('value').be.an('object')
           expect(sc.value).to.have.property('a').not.equal(1) // won't be resolved...
           expect(sc.value).to.have.property('b').equal(2)
           expect(sc.value).to.not.have.property('c')
-        })
+        }))
       }))
-    it('$equals', cases({
-      "0 = 0": expect.eval(emptyScope, ["$equals", 0, 0]).toEqual(true),
-      "0 != 1": expect.eval(emptyScope, ["$equals", 0, 1]).toEqual(false),
-      "0 != null": expect.eval(emptyScope, ["$equals", 0, null]).toEqual(false)
-    }))
-    it('$add', expect.eval(emptyScope, ["$add", 2, 3]).toEqual(5))
-    it('$subtract', expect.eval(emptyScope, ["$subtract", 2, 3]).toEqual(-1))
-    it('$multiply', expect.eval(emptyScope, ["$multiply", 2, 3]).toEqual(6))
-    it('$divide', expect.eval(emptyScope, ["$divide", 6, 2]).toEqual(3))
-    it('$modulus', expect.eval(emptyScope, ["$modulus", 5, 2]).toEqual(1))
-    it('$negate', expect.eval(emptyScope, ["$negate", 5]).toEqual(-5))
-    it('$toString', expect.eval(emptyScope, ["$toString", 91]).toEqual("91"))
-    it('$arrayConcat',
-      expect.eval(emptyScope, ["$arrayConcat", [[], 1, 2], [[], 3, 4]]).toEqual([1, 2, 3, 4]))
-    it('$dynamicGet, $dynamicLet', cases({
-      "get default":
-        expect.eval(emptyScope, ["$dynamicGet", ["", dyn]]).toEqual(false),
-      "let then get":
-        expect.eval(emptyScope,
-            ["$dynamicLet", ["", dyn], true, ["$dynamicGet", ["", dyn]]])
-          .toEqual(true),
-      "get from closure":
-        expect.eval(_.merge({}, emptyScope, {value: {get: {$closure:{}, $code:["$dynamicGet", [0, "$args"]]}}}),
-            ["$dynamicLet", ["", dyn], true, ["get", ["", dyn]]])
-          .toEqual(true),
+    it('$dynamicLet', withEnv((env, should) => {
+      const scope = values({dynamicGet: new NativeFn(function* dynamicGet(dyn) {
+        const d = new Deferred()
+        this.getDynamic(yield dyn, d.resolve.bind(d))
+        return d
+      }).toClosure(env)})
+      evalExpr(env, scope, ['dynamicGet', ['', dyn]], should.equal(false))
+      evalExpr(env, scope,
+            ['$dynamicLet', ['', dyn], true, ['dynamicGet', ['', dyn]]],
+          should.equal(true))
+      evalExpr(env, values({get: closure(env, ['dynamicGet', [0, '$args']], scope)}),
+        ['$dynamicLet', ['', dyn], true, ['get', ['', dyn]]],
+        should.equal(true))
     }))
   })
-  it('can call a function from the scope',
-    expect.eval(values({add1}), ["add1", 2]).toEqual(3))
-  it('can call multiple functions inside arrays',
-    expect.eval(values({add1}), [[], ["add1", 1], ["add1", 2], 4]).toEqual([2, 3, 4]))
-  it('can call multiple functions inside objects',
-    expect.eval(values({add1}), {a: ["add1", 1], b: ["add1", 2], c: 4}).toEqual({a: 2, b: 3, c: 4}))
+  it('can call a function from the scope', withEnv((env, should) =>
+    evalExpr(env, values(add1(env)), ['add1', 2], should.equal(3))))
+  it('can call multiple functions inside arrays', withEnv((env, should) =>
+    evalExpr(env, values(add1(env)), [[], ['add1', 1], ['add1', 2], 4],
+      should.equal([2, 3, 4]))))
+  it('can call multiple functions inside objects', withEnv((env, should) =>
+    evalExpr(env, values(add1(env)), {a: ['add1', 1], b: ['add1', 2], c: 4},
+      should.equal({a: 2, b: 3, c: 4}))))
 })
 
 describe('macroexpand', () => {
-  it('does not expand scalar values', cases({
-    "null": expect.macroExpand(emptyScope, null).toEqual(null),
-    "true": expect.macroExpand(emptyScope, true).toEqual(true),
-    "false": expect.macroExpand(emptyScope, false).toEqual(false),
-    "empty string": expect.macroExpand(emptyScope, "").toEqual(""),
-    "unbound string": expect.macroExpand(emptyScope, "foo").toEqual("foo"),
-    "bound string": expect.macroExpand(macros({foo: 1}), "foo").toEqual("foo"),
-    "0": expect.macroExpand(emptyScope, 0).toEqual(0),
-    "91": expect.macroExpand(emptyScope, 91).toEqual(91),
-    "empty array": expect.macroExpand(emptyScope, []).toEqual([]),
-    "empty object": expect.macroExpand(emptyScope, {}).toEqual({})
+  it('does not expand scalar values', withEnv((env, should) => {
+    macroExpand(env, emptyScope, null, should.equal(null))
+    macroExpand(env, emptyScope, true, should.equal(true))
+    macroExpand(env, emptyScope, false, should.equal(false))
+    macroExpand(env, emptyScope, '', should.equal(''))
+    macroExpand(env, emptyScope, 'foo', should.equal('foo'))
+    macroExpand(env, macros({foo: 1}), 'foo', should.equal('foo'))
+    macroExpand(env, emptyScope, 0, should.equal(0))
+    macroExpand(env, emptyScope, 91, should.equal(91))
+    macroExpand(env, emptyScope, [], should.equal([]))
+    macroExpand(env, emptyScope, {}, should.equal({}))
   }))
-  it('does not expand non-macro calls', cases({
-    "no binding, string":
-      expect.macroExpand(emptyScope, ["foo", "bar"]).toEqual(["foo", "bar"]),
-    "different binding, string":
-      expect.macroExpand(macros({add1}), ["foo", "bar"]).toEqual(["foo", "bar"]),
-    "no binding, number":
-      expect.macroExpand(emptyScope, [0, "bar"]).toEqual([0, "bar"]),
-    "one binding, number":
-      expect.macroExpand(macros({add1}), [0, "bar"]).toEqual([0, "bar"])
+  it('does not expand non-macro calls', withEnv((env, should) => {
+    macroExpand(env, emptyScope, ['foo', 'bar'], should.equal(['foo', 'bar']))
+    macroExpand(env, macros(add1(env)), ['foo', 'bar'], should.equal(['foo', 'bar']))
+    macroExpand(env, emptyScope, [0, 'bar'], should.equal([0, 'bar']))
+    macroExpand(env, macros(add1(env)), [0, 'bar'], should.equal([0, 'bar']))
   }))
-  it('expands macro calls from the scope',
-    expect.macroExpand(macros({add1}), ["add1", 2]).toEqual(3))
-  it('recursively expands',
-    expect.macroExpand(macros({add1, macro_add1}), ["macro_add1", 2]).toEqual(3))
-  it('does not expand quoted code',
-    expect.macroExpand(macros({add1}), ['', ["add1", 2]]).toEqual(['', ["add1", 2]]))
-  it('expands arguments to []',
-    expect.macroExpand(macros({add1}), [[], ["add1", 1], ["add1", 2]]).toEqual([[], 2, 3]))
-  it('expands arguments to non-macro call',
-    expect.macroExpand(macros({add1}), ["foo", ["add1", 1], ["add1", 2]]).toEqual(["foo", 2, 3]))
-  it('recursively expands arguments',
-    expect.macroExpand(macros({add1, macro_array_add1}),
-      ["macro_array_add1", 1, 2]).toEqual([[], 2, 3]))
+  it('expands macro calls from the scope', withEnv((env, should) =>
+    macroExpand(env, macros(add1(env)), ['add1', 2], should.equal(3))))
+  it('recursively expands', withEnv((env, should) =>
+    macroExpand(env, macros(_.assign(add1(env), macroAdd1(env))), ['macroAdd1', 2],
+      should.equal(3))))
+  it('does not expand quoted code', withEnv((env, should) =>
+    macroExpand(env, macros(add1(env)), ['', ['add1', 2]],
+      should.equal(['', ['add1', 2]]))))
+  it('expands arguments to []', withEnv((env, should) =>
+    macroExpand(env, macros(add1(env)), [[], ['add1', 1], ['add1', 2]],
+      should.equal([[], 2, 3]))))
+  it('expands arguments to non-macro call', withEnv((env, should) =>
+    macroExpand(env, macros(add1(env)), ['foo', ['add1', 1], ['add1', 2]],
+      should.equal(['foo', 2, 3]))))
+  it('recursively expands arguments', withEnv((env, should) =>
+    macroExpand(env, macros(_.assign(add1(env), macroArrayAdd1(env))),
+      ['macroArrayAdd1', 1, 2], should.equal([[], 2, 3]))))
   describe('syntax-quote', () => {
-    it('becomes a normal quote macro when there are no unquotes', cases({
-      "`1": expect.macroExpand(emptyScope, [sq, 1]).toEqual(['', 1]),
-      "`foo": expect.macroExpand(emptyScope, [sq, "foo"]).toEqual(['', "foo"]),
-      "`'foo": expect.macroExpand(emptyScope, [sq, ['', "foo"]])
-                     .toEqual(['', ['', "foo"]]),
-      "``foo": expect.macroExpand(emptyScope, [sq, [sq, "foo"]])
-                     .toEqual(['', [sq, "foo"]]),
-      "`foo w/ foo bound":
-        expect.macroExpand(macros({foo: add1}), [sq, "foo"]).toEqual(['', "foo"]),
-      "`(foo, 0) w/ foo bound":
-        expect.macroExpand(macros({foo: add1}), [sq, ["foo", 0]])
-              .toEqual([[], ['', "foo"], ['', 0]])
+    it('becomes a normal quote macro when there are no unquotes',
+      withEnv((env, should) => {
+        macroExpand(env, emptyScope, [sq, 1], should.equal(1))
+        macroExpand(env, emptyScope, [sq, 'foo'], should.equal(['', 'foo']))
+        macroExpand(env, emptyScope, [sq, ['', 'foo']],
+          should.equal(['', ['', 'foo']]))
+        macroExpand(env, emptyScope, [sq, [sq, 'foo']],
+          should.equal(['', [sq, 'foo']]))
+        macroExpand(env, macros(add1(env)), [sq, 'add1'],
+          should.equal(['', 'add1']))
+        macroExpand(env, macros(add1(env)), [sq, ['add1', 0]],
+          should.equal([[], ['', 'add1'], 0]))
+      }))
+    it('cancels out `~', withEnv((env, should) =>
+      macroExpand(env, emptyScope, [sq, [uq, 'foo']], should.equal('foo'))))
+    it('expands macros inside `~', withEnv((env, should) =>
+      macroExpand(env, macros(add1(env)), [sq, [uq, ['add1', 1]]], should.equal(2))))
+    it('uses [] to join unquotes', withEnv((env, should) => {
+      macroExpand(env, emptyScope, [sq, [[uq, 'a'], 'b']],
+        should.equal([[], 'a', ['', 'b']]))
+      macroExpand(env, emptyScope, [sq, [[uq, ['a', 'b']], [[uq, 'c'], 'd']]],
+        should.equal([[], ['a', 'b'], [[], 'c', ['', 'd']]]))
     }))
-    it('cancels out `~', expect.macroExpand(emptyScope, [sq, [uq, 1]]).toEqual(1))
-    it('expands macros inside `~',
-      expect.macroExpand(macros({add1}), [sq, [uq, ["add1", 1]]]).toEqual(2))
-    it('uses [] to join unquotes', cases({
-      "`[~1 2]": expect.macroExpand(emptyScope, [sq, [[uq, 1], 2]]).toEqual([[], 1, ['', 2]]),
-      "`[~[1 2] [~3 4]]":
-        expect.macroExpand(emptyScope, [sq, [[uq, [1, 2]], [[uq, 3], 4]]])
-              .toEqual([[], [1, 2], [[], 3, ['', 4]]])
+    it('expands macros inside unquotes', withEnv((env, should) =>
+      macroExpand(env, macros(add1(env)), [sq, ['a', [uq, ['add1', 1]], 'b']],
+        should.equal([[], ['', 'a'], 2, ['', 'b']]))))
+    it('uses arrayConcat to join $unquoteSplicing/~@', withEnv((env, should) =>
+      macroExpand(env, emptyScope, [sq, [1, 2, [uqs, ['', [3, 4]]]]],
+        should.equal([Names.arrayConcatQualified, [[], 1, 2], ['', [3, 4]]]))))
+    it('can nest', withEnv((env, should) => {
+      macroExpand(env, macros({foo: 1}), [sq, [uq, [sq, 'foo']]],
+        should.equal(['', 'foo']))
+      macroExpand(env, macros({foo: 1}), [sq, [uq, [sq, [uq, 'foo']]]],
+        should.equal('foo'))
+      macroExpand(env, macros({foo: 1}), [sq, [sq, [uq, 'foo']]],
+        should.equal(['', [sq, [uq, 'foo']]]))
     }))
-    it('expands macros inside unquotes',
-      expect.macroExpand(macros({add1}), [sq, [1, [uq, ["add1", 1]], 3]])
-            .toEqual([[], ['', 1], 2, ['', 3]]))
-    it('uses arrayConcat to join $unquoteSplicing/~@',
-      expect.macroExpand(emptyScope, [sq, [1, 2, [uqs, ['', [3, 4]]]]])
-            .toEqual(["$arrayConcat", [[], ['', 1], ['', 2]], ['', [3, 4]]]))
-    it('can nest', cases({
-      "`~`": expect.macroExpand(macros({foo: 1}), [sq, [uq, [sq, "foo"]]])
-                   .toEqual(['', "foo"]),
-      "`~`~": expect.macroExpand(macros({foo: 1}), [sq, [uq, [sq, [uq, "foo"]]]])
-                    .toEqual("foo"),
-      "``~": expect.macroExpand(macros({foo: 1}), [sq, [sq, [uq, "foo"]]])
-                   .toEqual(['', [sq, [uq, "foo"]]])
+    it('qualifies names', withEnv((env, should) => {
+      macroExpand(env,
+        _.create(emptyScope, {value: {foo: 1}, qualified: {foo: 'baz.bar.foo@'}}),
+        [sq, 'foo'],
+        should.equal(['', 'baz.bar.foo@']))
+      macroExpand(env,
+        _.create(emptyScope, {
+          value: {foo: 1, bar: 2, baz: 3},
+          qualified: {foo: 'quux.foo@', bar: 'quux.bar@'}
+        }),
+        [sq, ['foo', 'bar', 'baz']],
+        should.equal([[], ['', 'quux.foo@'], ['', 'quux.bar@'], ['', 'baz']]))
     }))
+    it('does not qualify quoted names', withEnv((env, should) => {
+      macroExpand(env,
+        _.create(emptyScope, {
+          value: {foo: 1, bar: 2, baz: 3},
+          qualified: {foo: 'quux.foo@', bar: 'quux.bar@'}
+        }),
+        [sq, ['foo', ['', 'bar'], 'baz']],
+        should.equal([[], ['', 'quux.foo@'], ['', ['', 'bar']], ['', 'baz']]))
+    }))
+    it('replaces .name.s with gensyms', withEnv((env, should) => {
+      macroExpand(env, emptyScope, [sq, '.x.'], should.pass((val: Jaspr[]) => {
+        expect(val).to.be.an('array')
+        expect(val).to.have.length(2)
+        expect(val[0]).to.equal('')
+        expect(val[1]).to.be.a('string').and.not.equal('.x.')
+      }))
+      macroExpand(env, emptyScope, [sq, ['.x.', '.y.', '.x.']],
+        should.pass(([[], [q1, x1], [q2, y], [q3, x2]]: Jaspr[][]) => {
+          expect(q1).to.equal('').and.equal(q2).and.equal(q3)
+          expect(x1).to.be.a('string').and.not.equal('.x.')
+          expect(x2).to.equal(x1)
+          expect(y).to.be.a('string').and.not.equal('.y.').and.not.equal(x1)
+        }))
+      macroExpand(env, emptyScope, [[sq, '.x.'], [sq, '.x.']],
+        should.pass(([[q1, x1], [q2, x2]]: Jaspr[][]) => {
+          expect(q1).to.equal('')
+          expect(q2).to.equal('')
+          expect(x1).to.be.a('string').and.not.equal('.x.')
+          expect(x2).to.be.a('string').and.not.equal('.x.').and.not.equal(x1)
+        }))
+      macroExpand(env, emptyScope, [sq, {'.x.': '.x.'}],
+        should.pass((obj: JasprObject) => {
+          expect(obj).to.be.an('object')
+          expect(Object.keys(obj)).to.have.length(1)
+          const x = Object.keys(obj)[0]
+          expect(x).to.not.equal('.x.')
+          expect(obj[x]).to.deep.equal(['', x])
+        }))
+      }))
+    it('can compile a piece of standard library code', withEnv((env, should) =>
+      macroExpand(env, _.create(emptyScope, {
+        qualified: {
+          'p.if': 'jaspr.primitive.if@',
+          'p.arraySlice': 'jaspr.primitive.arraySlice@',
+          'p.arrayLength': 'jaspr.primitive.arrayLength@',
+          'p.dynamicGet': 'jaspr.primitive.dynamicGet@',
+          assertArgs: 'jaspr.assertArgs@',
+          debugArgs: 'jaspr.debugArgs@',
+          myName: 'jaspr.myName@',
+          raise: 'jaspr.raise@'
+        }
+      }), [sq, ['p.if', [uq, [0, '$args']],
+            ['assertArgs', [uqs, ['p.arraySlice', 2, ['p.arrayLength', '$args'], '$args']]],
+            ['raise', {
+              err: ['', 'BadArgs'], why: [uq, [1, '$args']], fn: ['myName'],
+              args: ['p.dynamicGet', 'debugArgs']
+            }]]],
+        should.equal(
+          [[], ['', 'jaspr.primitive.if@'], [0, '$args'],
+              [Names.arrayConcatQualified,
+                  [[], ['', 'jaspr.assertArgs@']],
+                  ['p.arraySlice', 2, ['p.arrayLength', '$args'], '$args']],
+              [[], ['', 'jaspr.raise@'], {
+                err: ['', ['', 'BadArgs']],
+                why: [1, '$args'],
+                fn: [[], ['', 'jaspr.myName@']],
+                args: [[], ['', 'jaspr.primitive.dynamicGet@'], ['', 'jaspr.debugArgs@']]
+              }]]))))
   })
 })
 
-const letScope = {
-  "macro.let": ["$closure", {}, [sq, [["$closure", [uqs, "$args"], {}]]], {}]
+const letDefs = {
+  'macro.let': ['$closure', {},
+    [sq, [['$closure', [uq, [0, '$args']], [uq, [1, '$args']], {}]]], {}]
 }
 
-const fnScope = _.merge({}, letScope, {
-  "macro.fn*": ["$closure", {},
-    [sq, ["$closure", {}, ["let", {"args": "$args"}, [uq, [0, "$args"]]], {}]], {}]
+const fnDefs = _.assign({}, letDefs, {
+  'macro.fn*': ['$closure', {},
+    [sq, ['$closure', {}, ['let', {args: '$args'}, [uq, [0, '$args']]], {}]], {}]
 })
 
 describe('evalDefs', () => {
-  it('evaluates literal variables', withDefs({a: 1, b: 2},
-    scope => done => {
-      chai.expect(scope.value).to.have.property('a').equal(1)
-      chai.expect(scope.value).to.have.property('b').equal(2)
-      done()
-    }))
-  it('evaluates simple code w/o a scope', withDefs({
-    a: ['', "foo"], b: ["$add", 1, 2]
-  }, scope => done => {
-    chai.expect(scope.value).to.have.property('a').equal("foo")
-    chai.expect(scope.value).to.have.property('b').equal(3)
-    done()
-  }))
-  it('evaluates variables in the scope', withDefs({a: 1, b: "a", c: "b"},
-    scope => done => {
-      chai.expect(scope.value).to.have.property('a').equal(1)
-      chai.expect(scope.value).to.have.property('b').equal(1)
-      chai.expect(scope.value).to.have.property('c').equal(1)
-      done()
-    }))
-  it('evaluates functions in the scope', withDefs({
-    add1: ['', add1], a: ["add1", 2], b: ["add1", 3]
-  }, scope => done => {
-    chai.expect(scope.value).to.have.property('a').equal(3)
-    chai.expect(scope.value).to.have.property('b').equal(4)
-    done()
-  }))
-  it('evaluates macros in the scope', withDefs({
-    a: ["add1", 2], b: ["add1", 3], "macro.add1": ['', add1]
-  }, scope => done => {
-    chai.expect(scope.value).to.have.property('a').equal(3)
-    chai.expect(scope.value).to.have.property('b').equal(4)
-    done()
-  }))
-  it('can define "let"', withDefs(letScope,
-    scope => cases({
-      "one level":
-        expect.fullEval(scope, ["let", {a: 1}, "a"]).toEqual(1),
-      "two levels, no shadowing":
-        expect.fullEval(scope, ["let", {a: 1}, ["let", {b: 2}, "b"]]).toEqual(2),
-      "two levels, shadowing":
-        expect.fullEval(scope, ["let", {a: 1}, ["let", {a: 2}, "a"]]).toEqual(2),
-      "one shadowed, one not":
-        expect.fullEval(scope, ["let", {a: 1, b: 3}, ["let", {a: 2}, "b"]]).toEqual(3),
-      "let inside variable":
-        expect.fullEval(scope, ["let", {a: ["let", {b: 2}, "b"]}, "a"]).toEqual(2)
-    })))
-  it('can use "let" from another scope member', withDefs(
-    _.merge({a: ["let", {b: 1}, "b"]}, letScope),
-    scope => done => {
-      chai.expect(scope.value).to.have.property('a').equal(1)
-      chai.expect(scope.value).to.not.have.property('b')
-      done()
-    }))
-  it('can define "fn*"', withDefs(
-    fnScope,
-    scope => done => {
-      chai.expect(scope.macro).to.have.property('fn*').not.be.an.instanceOf(Deferred)
-      chai.expect(isClosure(<Jaspr>scope.macro['fn*'])).to.be.true
-      done()
-    }))
-  it('can define a macro with "fn*"', withDefs(_.merge({
-      "macro.add1": ["fn*", ["$add", 1, [0, "args"]]]
-    }, fnScope), scope => done => {
-      chai.expect(scope.macro).to.have.property('add1').not.be.an.instanceOf(Deferred)
-      chai.expect(isClosure(<Jaspr>scope.macro.add1)).to.be.true
-      done()
-    }))
-  it('can use a "fn*"-defined macro in the scope', withDefs(_.merge({
-      "macro.add1": ["fn*", ["$add", 1, [0, "args"]]], a: ["add1", 2]
-    }, fnScope), scope => done => {
-      chai.expect(scope.value).to.have.property('a').equal(3)
-      done()
-    }))
+  it('evaluates literal variables', withEnv((env, should) =>
+    evalDefs(env, null, emptyScope, {a: 1, b: 2},
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.value).to.have.property('a').equal(1)
+        expect(scope.value).to.have.property('b').equal(2)
+      }))))
+  it('evaluates simple code w/o a scope', withEnv((env, should) =>
+    evalDefs(env, null, emptyScope, {a: ['', 'foo'], b: [[], 1, 2]},
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.value).to.have.property('a').equal('foo')
+        expect(scope.value).to.have.property('b').deep.equal([1, 2])
+      }))))
+  it('evaluates variables in the scope', withEnv((env, should) =>
+    evalDefs(env, null, emptyScope, {a: 1, b: 'a', c: 'b'},
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.value).to.have.property('a').equal(1)
+        expect(scope.value).to.have.property('b').equal(1)
+        expect(scope.value).to.have.property('c').equal(1)
+      }))))
+  it('evaluates functions in the scope', withEnv((env, should) =>
+    evalDefs(env, null, emptyScope,
+      {add1: ['', add1(env).add1], a: ['add1', 2], b: ['add1', 3]},
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.value).to.have.property('a').equal(3)
+        expect(scope.value).to.have.property('b').equal(4)
+      }))))
+  it('evaluates functions in the parent scope', withEnv((env, should) =>
+    evalDefs(env, null, values(add1(env)), {a: ['add1', 2], b: ['add1', 3]},
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.value).to.have.property('a').equal(3)
+        expect(scope.value).to.have.property('b').equal(4)
+      }))))
+  it('evaluates macros in the scope', withEnv((env, should) =>
+    evalDefs(env, null, emptyScope,
+      {'macro.add1': ['', add1(env).add1], a: ['add1', 2], b: ['add1', 3]},
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.value).to.have.property('a').equal(3)
+        expect(scope.value).to.have.property('b').equal(4)
+      }))))
+  it('can define "let"', withEnv((env, should) =>
+    evalDefs(env, null, emptyScope, letDefs,
+      should.withoutError.pass((scope: Scope) => {
+        deferExpandEval(env, scope, ['let', {a: 1}, 'a'])
+          .await(should.equal(1))
+        deferExpandEval(env, scope, ['let', {a: 1}, ['let', {b: 2}, 'b']])
+          .await(should.equal(2))
+        deferExpandEval(env, scope, ['let', {a: 1}, ['let', {a: 2}, 'a']])
+          .await(should.equal(2))
+        deferExpandEval(env, scope, ['let', {a: 1, b: 3}, ['let', {a: 2}, 'b']])
+          .await(should.equal(3))
+        deferExpandEval(env, scope, ['let', {a: ['let', {b: 2}, 'b']}, 'a'])
+          .await(should.equal(2))
+      }))))
+  it('can use "let" from another scope member', withEnv((env, should) =>
+    evalDefs(env, null, emptyScope,
+      _.assign({a: ['let', {b: 1}, 'b']}, letDefs),
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.value).to.have.property('a').equal(1)
+        expect(scope.value).to.not.have.property('b')
+      }))))
+  it('can define "fn*"', withEnv((env, should) =>
+    evalDefs(env, null, emptyScope, fnDefs,
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.macro).to.have.property('fn*').not.be.an.instanceOf(Deferred)
+        expect(isClosure(env, <Jaspr>scope.macro['fn*'])).to.be.true
+      }))))
+  it('can define a macro with "fn*"', withEnv((env, should) =>
+    evalDefs(env, null, values(add1(env)),
+      _.assign({'macro.mAdd1': ['fn*', ['add1', [0, 'args']]]}, fnDefs),
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.macro).to.have.property('mAdd1').not.be.an.instanceOf(Deferred)
+        expect(isClosure(env, <Jaspr>scope.macro.mAdd1)).to.be.true
+      }))))
+  it('can use a "fn*"-defined macro in the scope', withEnv((env, should) =>
+    evalDefs(env, null, values(add1(env)),
+      _.assign({'macro.mAdd1': ['fn*', ['add1', [0, 'args']]], a: ['mAdd1', 2]}, fnDefs),
+      should.withoutError.pass((scope: Scope) => {
+        expect(scope.value).to.have.property('a').equal(3)
+      }))))
 })

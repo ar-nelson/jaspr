@@ -1,4 +1,4 @@
-import {Jaspr, Deferred, isArray, isObject, isClosure, isMagic} from './Jaspr'
+import {Jaspr, Deferred, isArray, isObject, isMagic} from './Jaspr'
 import {reservedChar} from './Parser'
 import chalk from 'chalk'
 import {join, sum, identity} from 'lodash'
@@ -49,13 +49,13 @@ function quoteString(
 
 abstract class Form {
   abstract length(): number
-  abstract toStringInline(compress?: boolean): string
-  abstract toStringBlock(offset?: number, hanging?: number): string
-  toString(offset = 0, hanging?: number) {
+  abstract toStringInline(color?: boolean): string
+  abstract toStringBlock(color?: boolean, offset?: number, hanging?: number): string
+  toString(color = true, offset = 0, hanging?: number) {
     if (this.length() < maxLength - offset) {
-      return this.toStringInline()
+      return this.toStringInline(color)
     } else {
-      return this.toStringBlock(offset, hanging)
+      return this.toStringBlock(color, offset, hanging)
     }
   }
 }
@@ -73,19 +73,20 @@ class ArrayForm extends Form {
            (this.elements.length > 0 ? this.elements.length - 1 : 0)
   }
 
-  toStringInline() {
-    return chalk.cyan('[') +
-           join(this.elements.map(x => x.toStringInline()), ' ') +
-           chalk.cyan(']')
+  toStringInline(color = true) {
+    return (color ? chalk.cyan('[') : '[') +
+           join(this.elements.map(x => x.toStringInline(color)), ' ') +
+           (color ? chalk.cyan(']') : ']')
   }
 
-  toStringBlock(offset = 0, hanging = offset) {
-    return chalk.cyan('[') + '\n' +
+  toStringBlock(color = true, offset = 0, hanging = offset) {
+    const token: (x: string) => string = color ? chalk.cyan : identity
+    return token('[') + '\n' +
       join(this.elements.map(x =>
           spaces(hanging + defaultIndent) +
-          x.toString(hanging + defaultIndent)),
-        chalk.cyan(',') + '\n') +
-      '\n' + spaces(hanging) + chalk.cyan(']')
+          x.toString(color, hanging + defaultIndent)),
+        token(',') + '\n') +
+      '\n' + spaces(hanging) + token(']')
   }
 }
 
@@ -113,35 +114,37 @@ class ObjectForm extends Form {
         (this.entries.length > 0 ? this.entries.length - 1 : 0)
   }
 
-  toStringInline() {
-    return chalk.green('{') +
+  toStringInline(color = true) {
+    const token: (x: string) => string = color ? chalk.green : identity
+    return token('{') +
       join(this.entries.map(({key, unquoted, form: value}) => {
         if (unquoted) {
-          return key + chalk.green(':') + value.toStringInline()
+          return key + token(':') + value.toStringInline(color)
         } else {
           return quoteString(key, undefined, 
-              chalk.green, chalk.green, chalk.gray) +
-            chalk.green(':') + value.toStringInline()
+              token, token, color ? chalk.gray : identity) +
+            token(':') + value.toStringInline(color)
         }
-      }), ' ') + chalk.green('}')
+      }), ' ') + token('}')
   }
 
-  toStringBlock(offset = 0, hanging = offset) {
-    return chalk.green('{') + '\n' +
+  toStringBlock(color = true, offset = 0, hanging = offset) {
+    const token: (x: string) => string = color ? chalk.green : identity
+    return token('{') + '\n' +
       join(this.entries.map(({key, len, unquoted, form: value}) => {
-        const keyStr = spaces(hanging + defaultIndent) + (unquoted
-          ? key + chalk.green(':') + ' '
-          : quoteString(key, undefined, chalk.green, chalk.green, chalk.gray) +
-              chalk.green(':') + ' ')
+        const keyStr = spaces(hanging + defaultIndent) +
+          (unquoted ? key : quoteString(key, undefined,
+            token, token, color ? chalk.gray : identity)) +
+          token(':') + ' '
         if (hanging + defaultIndent + len + 2 + value.length() < maxLength) {
-          return keyStr + value.toStringInline()
+          return keyStr + value.toStringInline(color)
         } else {
-          return keyStr + value.toString(
+          return keyStr + value.toString(color,
             hanging + defaultIndent + len + 2,
             hanging + defaultIndent)
         }
-      }), chalk.green(',') + '\n') +
-      '\n' + spaces(hanging) + chalk.green('}')
+      }), token(',') + '\n') +
+      '\n' + spaces(hanging) + token('}')
   }
 }
 
@@ -164,13 +167,15 @@ class StringForm extends Form {
 
   length() { return this.len }
 
-  toStringInline() {
+  toStringInline(color = true) {
     if (this.unquoted) return this.str
     else return quoteString(this.str, undefined,
-        chalk.gray, chalk.yellow, chalk.gray)
+        color ? chalk.gray : identity,
+        color ? chalk.yellow : identity,
+        color ? chalk.gray : identity)
   }
 
-  toStringBlock(offset = 0, hanging = -1) {
+  toStringBlock(color = true, offset = 0, hanging = -1) {
     let out = '', len = maxLength - offset
     if (hanging >= 0 && offset + this.str.length > maxLength) {
       out += '\n' + spaces(hanging)
@@ -178,7 +183,9 @@ class StringForm extends Form {
     }
     if (this.unquoted && this.str.length <= len) return out + this.str
     else return out + quoteString(this.str, len,
-        chalk.gray, chalk.yellow, chalk.gray)
+        color ? chalk.gray : identity,
+        color ? chalk.yellow : identity,
+        color ? chalk.gray : identity)
   }
 }
 
@@ -193,37 +200,46 @@ class ConstantForm extends Form {
   }
   
   length() { return this.str.length }
-  toStringInline() { return this.color(this.str) }
-  toStringBlock(offset = 0, hanging = -1) {
+  toStringInline(color = true) { return color ? this.color(this.str) : this.str }
+  toStringBlock(color = true, offset = 0, hanging = -1) {
     if (hanging >= 0 && offset + this.str.length > maxLength) {
-      return '\n' + spaces(hanging) + this.color(this.str)
+      return '\n' + spaces(hanging) + (color ? this.color(this.str) : this.str)
     }
-    return this.color(this.str)
+    return color ? this.color(this.str) : this.str
   }
 }
 
 function buildForms(it: Jaspr | Deferred, depth = 0): Form {
-  if (depth >= maxDepth) return new ConstantForm('... (too deep)', chalk.gray)
-  if (it === null) return new ConstantForm('null', chalk.magentaBright)
-  if (it === true) return new ConstantForm('true', chalk.greenBright)
-  if (it === false) return new ConstantForm('false', chalk.redBright)
-  if (typeof it === 'number') return new ConstantForm('' + it, chalk.cyanBright)
-  if (typeof it === 'string') return new StringForm(it)
-  if (it instanceof Deferred) {
-    if (it.value !== undefined) return buildForms(it.value, depth)
-    else return new ConstantForm(it.toString(), chalk.yellow)
-  }
-  if (isArray(it)) return new ArrayForm(it.map(e => buildForms(e, depth + 1)))
-  if (isClosure(it) && isMagic(it)) {
-    return new ConstantForm('(closure)', chalk.yellowBright)
-  }
-  if (isObject(it)) {
+  if (depth >= maxDepth) {
+    return new ConstantForm('... (too deep)', chalk.gray)
+  } else if (it === null) {
+    return new ConstantForm('null', chalk.magentaBright)
+  } else if (it === true) {
+    return new ConstantForm('true', chalk.greenBright)
+  } else if (it === false) {
+    return new ConstantForm('false', chalk.redBright)
+  } else if (typeof it === 'number') {
+    return new ConstantForm('' + it, chalk.cyanBright)
+  } else if (typeof it === 'string') {
+    return new StringForm(it)
+  } else if (it instanceof Deferred) {
+    if (it.value !== undefined) {
+      return buildForms(it.value, depth)
+    } else {
+      return new ConstantForm(it.toString(), chalk.yellow)
+    }
+  } else if (isArray(it)) {
+    return new ArrayForm(it.map(e => buildForms(e, depth + 1)))
+  } else if (isMagic(it)) {
+    return new ConstantForm('(magic)', chalk.yellowBright)
+  } else if (isObject(it)) {
     return new ObjectForm(
       Object.keys(it).map(k => <any>[k, buildForms(it[k], depth + 2)]))
+  } else {
+    return new ConstantForm('' + it, chalk.yellow)
   }
-  return new ConstantForm('' + it, chalk.yellow)
 }
 
-export default function prettyPrint(it: Jaspr) {
-  return buildForms(it).toString()
+export default function prettyPrint(it: Jaspr, color = true) {
+  return buildForms(it).toString(color)
 }

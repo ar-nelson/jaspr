@@ -19,10 +19,10 @@ The alias `+` is preferred.
       (case= (len args)
         2 (assertArgs (number? (0 args)) "not a number"
                       (number? (1 args)) "not a number"
-                      ($add (0 args) (1 args)))
+                      (p.add (0 args) (1 args)))
         0 0
         (assertArgs (number? (hd args)) "not a number"
-                    ($add (hd args) (apply add (tl args))))))
+                    (p.add (hd args) (apply add (tl args))))))
 
 
 ### `dec`
@@ -34,7 +34,7 @@ The alias `+` is preferred.
 `dec` raises a `BadArgs` error if `n` is not a number.
 
     dec: (fn- n (assertArgs (number? n) "not a number"
-                            ($subtract n 1)))
+                            (p.subtract n 1)))
 
 ### `div`
 
@@ -44,7 +44,7 @@ The alias `+` is preferred.
     (fn- dividend divisor
       (assertArgs (number? dividend) "dividend is not a number"
                   (number? divisor) "divisor is not a number"
-                  ($divide dividend divisor)))
+                  (p.divide dividend divisor)))
 
 ### `inc`
 
@@ -55,7 +55,7 @@ The alias `+` is preferred.
 `inc` throws a `BadArgs` error if `n` is not a number.
 
     inc: (fn- n (assertArgs (number? n) "not a number"
-                            ($add n 1)))
+                            (p.add n 1)))
 
 ### `minus`
 
@@ -73,7 +73,7 @@ The alias `+` is preferred.
 
 `minus` Raises a `BadArgs` error if it receives 0 arguments or if any of its arguments are not numbers.
 
-    minus: (fn* args (if ($equals 1 (len args))
+    minus: (fn* args (if (p.is? 1 (len args))
                          (neg (0 args))
                          (apply sub args)))
 
@@ -87,7 +87,7 @@ The distinction between remainder (`rem`/`%`) and modulus (`mod`) is that the _r
     (fn- dividend divisor
       (assertArgs (number? dividend) "dividend is not a number"
                   (number? divisor) "divisor is not a number"
-                  ($modulus dividend divisor)))
+                  (p.modulus dividend divisor)))
 
 ### `mul`
 
@@ -102,10 +102,10 @@ The alias `*` or `×` is preferred.
       (case= (len args)
         2 (assertArgs (number? (0 args)) "not a number"
                       (number? (1 args)) "not a number"
-                      ($multiply (0 args) (1 args)))
+                      (p.multiply (0 args) (1 args)))
         0 1
         (assertArgs (number? (hd args)) "not a number"
-                    ($multiply (hd args) (apply mul (tl args))))))
+                    (p.multiply (hd args) (apply mul (tl args))))))
 
 ### `neg`
 
@@ -117,7 +117,7 @@ Negates its argument. Raises a `BadArgs` error if its argument is not a number.
 The alias `-` of `minus`, which has the same functionality when called with one argument, is preferred.
 
     neg: (fn- n (assertArgs (number? n) "not a number"
-                            ($negate n)))
+                            (p.negate n)))
 
 ### `product`
 
@@ -127,7 +127,7 @@ The alias `-` of `minus`, which has the same functionality when called with one 
 
 `(product xs)` is semantically equivalent to `(apply mul xs)`, but it uses `fold` for better performance on large lists. It raises a `BadArgs` error if `xs` is not an array of numbers.
 
-    product: (fn- xs (fold (\xy $multiply x y) 1 xs))
+    product: (fn- xs (fold (\xy p.multiply x y) 1 xs))
 
 ### `rem`
 
@@ -139,7 +139,7 @@ The distinction between remainder (`rem`/`%`) and modulus (`mod`) is that the _r
     (fn- dividend divisor
       (assertArgs (number? dividend) "dividend is not a number"
                   (number? divisor) "divisor is not a number"
-                  ($remainder dividend divisor)))
+                  (p.remainder dividend divisor)))
 
 ### `sub`
 
@@ -155,10 +155,10 @@ The alias `-` of `minus`, which has the same functionality when called with more
       (case= (len args)
         2 (assertArgs (number? (0 args)) "not a number"
                       (number? (1 args)) "not a number"
-                      ($subtract (0 args) (1 args)))
+                      (p.subtract (0 args) (1 args)))
         0 0
         (assertArgs (number? (hd args)) "not a number"
-                    ($subtract (hd args) (apply sub (tl args))))))
+                    (p.subtract (hd args) (apply sub (tl args))))))
 
 ### `sum`
 
@@ -168,33 +168,33 @@ The alias `-` of `minus`, which has the same functionality when called with more
 
 `(sum xs)` is semantically equivalent to `(apply add xs)`, but it uses `fold` for better performance on large lists. It raises a `BadArgs` error if `xs` is not an array of numbers.
 
-    sum: (fn- xs (fold (\xy $add x y) 0 xs))
+    sum: (fn- xs (fold (\xy p.add x y) 0 xs))
 
 ## Exponents, Roots and Logarithms
 
 ### `cbrt`
 
-    cbrt: (\ $cbrt _)
+    cbrt: (\ p.cbrt _)
 
 ### `pow`
 
-    pow: (\xy $pow x y)
+    pow: (\xy p.pow x y)
 
 ### `sqrt`
 
-    sqrt: (\ $sqrt _)
+    sqrt: (\ p.sqrt _)
 
 ### `log`
 
-    log: (\ $log _)
+    log: (\ p.log _)
 
 ### `log2`
 
-    log2: (\ $log2 _)
+    log2: (\ p.log2 _)
 
 ### `log10`
 
-    log10: (\ $log10 _)
+    log10: (\ p.log10 _)
 
 ## Comparison
 
@@ -213,11 +213,11 @@ Less-than operator. Returns `true` if all of its arguments are ordered from leas
 
     <:
     (fn* args
-      (assertArgs ($less 1 (len args)) "expected 2 or more arguments"
+      (assertArgs (p.< 1 (len args)) "expected 2 or more arguments"
                   (number? (0 args)) "not a number"
                   (number? (1 args)) "not a number"
-        (and ($less (0 args) (1 args))
-             (or ($equals (len args) 2)
+        (and (p.< (0 args) (1 args))
+             (or (p.is? (len args) 2)
                  (apply < (tl args))))))
     
 ### `<=`
@@ -235,11 +235,11 @@ Less-than-or-equal operator. Returns `true` if all of its arguments are ordered 
 
     <=:
     (fn* args
-      (assertArgs ($less 1 (len args)) "expected 2 or more arguments"
+      (assertArgs (p.< 1 (len args)) "expected 2 or more arguments"
                   (number? (0 args)) "not a number"
                   (number? (1 args)) "not a number"
-        (and ($lessOrEqual (0 args) (1 args))
-             (or ($equals (len args) 2)
+        (and (p.<= (0 args) (1 args))
+             (or (p.is? (len args) 2)
                  (apply <= (tl args))))))
 
 ### `>`
@@ -257,11 +257,11 @@ Greater-than operator. Returns `true` if all of its arguments are ordered from g
 
     >:
     (fn* args
-      (assertArgs ($less 1 (len args)) "expected 2 or more arguments"
+      (assertArgs (p.< 1 (len args)) "expected 2 or more arguments"
                   (number? (0 args)) "not a number"
                   (number? (1 args)) "not a number"
-        (and ($less (1 args) (0 args))
-             (or ($equals (len args) 2)
+        (and (p.< (1 args) (0 args))
+             (or (p.is? (len args) 2)
                  (apply > (tl args))))))
 
 ### `>=`
@@ -279,11 +279,11 @@ Greater-than-or-equal operator. Returns `true` if all of its arguments are order
 
     >=:
     (fn* args
-      (assertArgs ($less 1 (len args)) "expected 2 or more arguments"
+      (assertArgs (p.< 1 (len args)) "expected 2 or more arguments"
                   (number? (0 args)) "not a number"
                   (number? (1 args)) "not a number"
-        (and ($lessOrEqual (1 args) (0 args))
-             (or ($equals (len args) 2)
+        (and (p.<= (1 args) (0 args))
+             (or (p.is? (len args) 2)
                  (apply >= (tl args))))))
 
 ### `max`
@@ -296,37 +296,37 @@ Greater-than-or-equal operator. Returns `true` if all of its arguments are order
 
 ## Predicates and Rounding
 
-    floor: (\ $floor _)
-    ceil: (\ $ceil _)
-    round: (\ $round _)
-    abs: (\ $abs _)
+    floor: (\ p.floor _)
+    ceil: (\ p.ceil _)
+    round: (\ p.round _)
+    abs: (\ p.abs _)
     sign: (\ if (pos? _) 1 (neg? _) -1 (NaN? _) NaN 0)
     pos?: (\ < 0 _)
     neg?: (\ > 0 _)
-    zero?: (\ $equals 0 _)
+    zero?: (\ p.is? 0 _)
     even?: (\-> (mod 2) (= 0))
     odd?: (\-> (mod 2) (= 1))
     integer?: (\ and (number? _) (no (NaN? _)) (finite? _) (= _ (floor _)))
-    finite?: (\ $isFinite _)
-    infinite?: (\ no ($isFinite _))
-    NaN?: (\ $isNaN _)
+    finite?: (\ p.finite? _)
+    infinite?: (\ no (p.finite? _))
+    NaN?: (\ p.NaN? _)
 
 ## Trigonometry
 
-    sin: (\ $sin _)
-    cos: (\ $cos _)
-    tan: (\ $tan _)
-    asin: (\ $asin _)
-    acos: (\ $acos _)
-    atan: (\ $atan _)
-    atan2: (\xy $atan2 x y)
-    sinh: (\ $sinh _)
-    cosh: (\ $cosh _)
-    tanh: (\ $tanh _)
-    asinh: (\ $asinh _)
-    acosh: (\ $acosh _)
-    atanh: (\ $atanh _)
-    hypot: (\xy $hypot x y)
+    sin: (\ p.sin _)
+    cos: (\ p.cos _)
+    tan: (\ p.tan _)
+    asin: (\ p.asin _)
+    acos: (\ p.acos _)
+    atan: (\ p.atan _)
+    atan2: (\xy p.atan2 x y)
+    sinh: (\ p.sinh _)
+    cosh: (\ p.cosh _)
+    tanh: (\ p.tanh _)
+    asinh: (\ p.asinh _)
+    acosh: (\ p.acosh _)
+    atanh: (\ p.atanh _)
+    hypot: (\xy p.hypot x y)
 
 ## Constants
 

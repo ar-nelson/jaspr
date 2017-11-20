@@ -10,12 +10,12 @@ All data in Jaspr, even functions/closures, belongs to one of the six JSON data 
 
 The standard library defines six _type predicates_ to test the type of a value:
 
-    null?:    (fn- x ($equals null x))
-    boolean?: (fn- x ($equals “boolean” (typeOf x)))
-    number?:  (fn- x ($equals “number” (typeOf x)))
-    string?:  (fn- x ($equals “string” (typeOf x)))
-    array?:   (fn- x ($equals “array” (typeOf x)))
-    object?:  (fn- x ($equals “object” (typeOf x)))
+    null?:    (fn- x (p.is? null x))
+    boolean?: (fn- x (p.is? “boolean” (typeOf x)))
+    number?:  (fn- x (p.is? “number” (typeOf x)))
+    string?:  (fn- x (p.is? “string” (typeOf x)))
+    array?:   (fn- x (p.is? “array” (typeOf x)))
+    object?:  (fn- x (p.is? “object” (typeOf x)))
 
     doc.null?:    “Returns `true` if its argument is `null`.”
     doc.boolean?: “Returns `true` if its argument is a boolean.”
@@ -44,7 +44,7 @@ These are based on the `typeOf` function, which returns a string describing the 
       The return value is one of `“null”`, `“boolean”`, `“number”`, `“string”`,
       `“array”`, or `“object”`.
     ”
-    typeOf: (fn- x ($typeOf x))
+    typeOf: (fn- x (p.typeOf x))
 
 >     (typeOf null)  ;= “null”
 >     (typeOf true)  ;= “boolean”
@@ -75,7 +75,7 @@ A value can be converted to its boolean equivalent, based on truthiness, using `
 >     (true? “”)      ;= false
 >     (true? “false”) ;= true
 >     (true? [])      ;= false
->     (true? '[0])     ;= true
+>     (true? '[0])    ;= true
 >     (true? {})      ;= false
 >     (true? {a: 0})  ;= true
 
@@ -115,9 +115,9 @@ Logical operations `and?`, `or?`, and `xor?` (`∧`, `∨`, `⊕`) are also avai
     xor?:
       (fn* args
         (if (no args) false
-            ($equals 1 (len args)) (true? (hd args))
-            (and? args (apply xor? (cons (no ($equals (true? (0 args)) (true? (1 args))))
-                                         ($arraySlice 2 (len args) args))))))
+            (p.is? 1 (len args)) (true? (hd args))
+            (and? args (apply xor? (cons (no (p.is? (true? (0 args)) (true? (1 args))))
+                                         (p.arraySlice 2 (len args) args))))))
 
 >     (xor?)             ;= false
 >     (xor? true)        ;= true
@@ -141,13 +141,13 @@ Jaspr numbers are 64-bit double-precision IEEE floating-point numbers. Because o
 Jaspr defines the values `Infinity`, `-Infinity`, and `NaN` in the standard library rather than as part of the syntax.
 
     doc.Infinity: “The IEEE floating-point value for positive infinity.”
-    Infinity: ($infinity)
+    Infinity: p.Infinity
 
     doc.-Infinity: “The IEEE floating-point value for negative infinity.”
-    -Infinity: ($negate ($infinity))
+    -Infinity: p.-Infinity
 
     doc.NaN: “The IEEE floating-point not-a-number (`NaN`) value.”
-    NaN: ($NaN)
+    NaN: p.NaN
 
 Although there is no syntax for these values, printing them outputs the names defined here (`Infinity`, `-Infinity`, and `NaN`).
 
@@ -173,7 +173,7 @@ Arrays are contiguous sequences of values. They are indexed by nonnegative integ
 While the underlying representation of arrays is implementation-dependent, arrays are assumed to be more like _vectors_ than _lists_: indexing into an array and getting the length of an array should be constant-time operations. `len` retrieves the length of an array.
 
     len: (fn- a (assertArgs (array? a) “not an array”
-                            ($arrayLength a)))
+                            (p.arrayLength a)))
 
 >     (len [])       ;= 0
 >     (len '[a b c]) ;= 3
@@ -183,16 +183,16 @@ Although Jaspr arrays are not linked lists, they still support the basic list op
     nil?: (fn- a (and (array? a) (no (len a))))
 
     cons: (fn- head tail (assertArgs (array? tail) “tail is not an array”
-                                     ($arrayConcat `[~head] tail)))
+                                     (p.arrayConcat `[~head] tail)))
 
     hd: 0 ; Yes, it's really that simple.
 
     tl: (fn- a (assertArgs (array? a) “not an array”
                            a          “array is empty”
-                           ($arraySlice 1 (len a) a)))
+                           (p.arraySlice 1 (len a) a)))
 
 >     (nil? [])        ;= true
->     (nil? '[1])       ;= false
+>     (nil? '[1])      ;= false
 >     (cons 1 [])      ;= [1]
 >     (cons 'a '[b c]) ;= [“a”, “b”, “c”]
 >     (hd '[a b c])    ;= “a”
@@ -206,22 +206,22 @@ Jaspr's standard library contains dozens of other array functions; see [Array Op
 Objects are maps from string keys to values. The ordering of keys is undefined. Core object operations are `keys`, `values`, and `hasKey?`, `withKey`, and `withoutKey`; other operations are defined in [Object Operations](objects.jaspr.md).
 
     keys: (fn- x (assertArgs (object? x) “not an object”
-                             ($objectKeys x)))
+                             (p.objectKeys x)))
 
     values: (fn- x (assertArgs (object? x) “not an object”
-                               ($objectValues x)))
+                               (p.objectValues x)))
 
     hasKey?: (fn- key obj (assertArgs (object? obj) “not an object”
                                       (string? key) “key is not a string”
-                                      ($objectHas key obj)))
+                                      (p.objectHas key obj)))
 
     withKey: (fn- key val obj (assertArgs (object? obj) “not an object”
                                           (string? key) “key is not a string”
-                                          ($objectInsert key val obj)))
+                                          (p.objectInsert key val obj)))
 
     withoutKey: (fn- key obj (assertArgs (object? obj) “not an object”
                                          (string? key) “key is not a string”
-                                         ($objectDelete key obj)))
+                                         (p.objectDelete key obj)))
 
 >     (keys {}) ;= []
 >     (keys {a: 'b}) ;= ["a"]
@@ -240,19 +240,23 @@ For example, `(chan!)` generates a new channel, which is just the object `{$chan
 
 A functionally-updated copy of a magic object---created with, e.g., `withKey` or `withoutKey`---is no longer magic. Notably, this means that updating a channel or dynamic variable this way makes the updated version no longer a channel or dynamic variable.
 
-    magic?: (fn- x ($isMagic x))
+    magic?: (fn- x (p.magic? x))
 
 ### Closures and Functions
 
-A closure is an object with a `$closure` key. A function is a closure that also has a `$code` key. The `$closure` key contains the closure's scope; calling a function evaluates the function's `$code` in its scope (see [Syntax and Semantics/Functions](syntax.jaspr.md#functions)).
+Every Jaspr process defines a unique, randomly-generated string called a _scope key_, accessible through the name `scopeKey`.
 
-Closures may be magic objects; they are the only values in Jaspr that can contain self-references. Because of this, many recursive algorithms in Jaspr either don't recurse into keys named `$closure` or raise errors when they encounter closures, to avoid infinite loops. Notably, evaluation and macroexpansion raise `EvalFailed` errors when they encounter unquoted closures; the `closure` special form provides a safe way to create closures without writing them directly in source code.
+    scopeKey: p.scopeKey
+
+A closure is an object with this scope key. A function is a closure that also has a `$code` key. The scope key contains the closure's scope; calling a function evaluates the function's `$code` in its scope (see [Syntax and Semantics/Functions](syntax.jaspr.md#functions)).
+
+Closures may be magic objects; they are the only values in Jaspr that can contain self-references. Because of this, many recursive algorithms in Jaspr either don't recurse into the scope key or raise errors when they encounter closures, to avoid infinite loops. Notably, evaluation and macroexpansion raise `EvalFailed` errors when they encounter unquoted closures; the `closure` special form provides a safe way to create closures without writing them directly in source code.
 
 Non-magic closures can exist if they are created directly in Jaspr code using object literals or object-building functions. `(closure? x)` does not imply `(magic? x)`.
 
 The predicates `closure?` and `function?` test whether a value is a closure or function.
 
-    closure?: (fn- x (and (object? x) (hasKey? “$closure” x)))
+    closure?: (fn- x (and (object? x) (hasKey? scopeKey x)))
     function?: (fn- x (and (closure? x) (hasKey? “$code” x)))
 
 Jaspr also provides several basic function combinators:
@@ -289,7 +293,7 @@ In many cases, the lambda + threading macros `\->` and `\->>` can express functi
 ---
 
     comp: (fn* fs (if (no fs) id
-                      ($equals 1 (len fs)) (hd fs)
+                      (p.is? 1 (len fs)) (hd fs)
                       (let {f: (hd fs), g: (apply comp (tl fs))}
                            (fn* xs (f (apply g xs))))))
 
@@ -306,7 +310,7 @@ If `f` has side effects, calling `g` will not cause those side effects, but call
 ---
 
     curry:
-    (fn- f (fn* prefix (fn- last (apply f ($arrayConcat prefix ([] last))))))
+    (fn- f (fn* prefix (fn- last (apply f (p.arrayConcat prefix ([] last))))))
 
 #### `uncurry`
 
@@ -321,7 +325,7 @@ Takes a _curried_ function `f` of arity _n_ that itself returns an unary functio
     uncurry:
     (fn- f (fn* args
       (assertArgs args “uncurried function requires at least 1 argument”
-        ((apply f ($arraySlice 0 ($subtract (len args) 1) args)) (-1 args)))))
+        ((apply f (p.arraySlice 0 (p.subtract (len args) 1) args)) (-1 args)))))
 
 #### `partial`
 
@@ -335,7 +339,7 @@ Takes a _curried_ function `f` of arity _n_ that itself returns an unary functio
     partial:
     (fn* fArgs (assertArgs fArgs “no function”
                  (let {f: (hd fArgs), args: (tl fArgs)}
-                   (fn* args2 (apply f ($arrayConcat args args2))))))
+                   (fn* args2 (apply f (p.arrayConcat args args2))))))
 
 ### Channels
 
@@ -343,7 +347,7 @@ A channel is a magic object with the property `$chan: true`. Channels are the on
 
 The predicate `chan?` tests whether a value is a channel.
 
-    chan?: (fn- x ($isChan x))
+    chan?: (fn- x (p.chan? x))
 
 ### Dynamic Variables
 
@@ -351,7 +355,10 @@ While name bindings in Jaspr are [lexically scoped][scope], Jaspr also supports 
 
 A dynamic variable is a magic object with a `$dynamic: true` property and a `$default` property containing the variable's default value. These are created with `dynamic!`, which takes the default value to store in the dynamic variable's `$default` property.
 
-Jaspr has 3 built-in dynamic variables used in the language's core semantics: `$signalHandler`, `$name`, and `$module`.
+Jaspr has two built-in dynamic variables used in the language's core semantics: `signalHandler` and `name`.
+
+    signalHandler: p.signalHandler
+    name: p.name
 
 [scope]: https://en.wikipedia.org/wiki/Scope_(computer_science)#Lexical_scope_vs._dynamic_scope
 
@@ -359,13 +366,13 @@ Jaspr has 3 built-in dynamic variables used in the language's core semantics: `$
 
 `(dynamic! default)` creates and returns a new, unique dynamic variable, with `default` as its default value.
 
-    dynamic!: (fn- default ($dynamicMake default))
+    dynamic!: (fn- default (p.dynamicMake! default))
 
 #### `dynamic?`
 
 Returns a boolean value indicating whether or not its argument is a dynamic variable.
 
-    dynamic?: (fn- dyn ($isDynamic dyn))
+    dynamic?: (fn- dyn (p.dynamic? dyn))
 
 #### `getDynamic`
 
@@ -375,7 +382,7 @@ Returns a boolean value indicating whether or not its argument is a dynamic vari
 
     getDynamic:
     (fn- dyn (assertArgs (dynamic? dyn) “not a dynamic variable”
-                         ($dynamicGet dyn)))
+                         (p.dynamicGet dyn)))
 
 #### `letDynamic`
 
@@ -386,13 +393,13 @@ Returns a boolean value indicating whether or not its argument is a dynamic vari
 
     macro.letDynamic:
     (fn* xs
-      (if ($less ($arrayLength xs) 3)
-          (assertArgs ($equals 1 ($arrayLength xs)) “wrong number of arguments”
+      (if (p.< (p.arrayLength xs) 3)
+          (assertArgs (p.is? 1 (p.arrayLength xs)) “wrong number of arguments”
                       (0 xs))
-          `[$dynamicLet
+          `[p.dynamicLet
              ~(0 xs) // TODO: Raise when (0 xs) is not dynamic
              ~(1 xs)
-             (letDynamic ~@($arraySlice 2 ($arrayLength xs) xs))]))
+             (letDynamic ~@(p.arraySlice 2 (p.arrayLength xs) xs))]))
 
 ## Indexing and Paths
 
@@ -411,7 +418,7 @@ A _path_ is a sequence of indexes (integers or strings) that identifies an eleme
 
 ---
 
-    notFound: ($gensym)
+    notFound: `.notFound.
     get:
     (fn* args
       (assertArgs args "expected at least one argument"
@@ -529,23 +536,23 @@ Otherwise, `a` and `b` are structurally equal if they are identical (reference/v
 
     eq?:
     (fn- a b
-      (or ($equals a b)
+      (or (p.is? a b)
           (and (array? a) (array? b)
-               ($equals (len a) (len b))
+               (p.is? (len a) (len b))
                (let {max: (len a),
-                     elEq: (fn- i (or ($equals i max)
+                     elEq: (fn- i (or (p.is? i max)
                                       (and (eq? (i a) (i b))
-                                           (elEq ($add i 1)))))}
+                                           (elEq (p.add i 1)))))}
                     (elEq 0)))
           (and (object? a) (object? b)
                (no (magic? a)) (no (magic? b))
                (let {aks: (keys a), bks: (keys b), max: (len aks),
-                     keyEq: (fn- i (or ($equals i max)
+                     keyEq: (fn- i (or (p.is? i max)
                                        (and (hasKey? (i aks) b)
                                             (hasKey? (i bks) a)
                                             (eq? ((i bks) a) ((i bks) b))
-                                            (keyEq ($add i 1)))))}
-                    (and ($equals (len aks) (len bks)) (keyEq 0))))))
+                                            (keyEq (p.add i 1)))))}
+                    (and (p.is? (len aks) (len bks)) (keyEq 0))))))
 
 ### `=`
 
@@ -565,7 +572,7 @@ See `eq?` for a description of Jaspr's structural equality algorithm.
 
 ---
 
-    =: (fn* xs (or ($less (len xs) 2)
+    =: (fn* xs (or (p.< (len xs) 2)
                    (and (eq? (0 xs) (1 xs)) (apply = (tl xs)))))
 
 ### `/=`
@@ -599,8 +606,8 @@ See `eq?` for a description of Jaspr's structural equality algorithm.
       len, length: len, nil?, cons, ∅?: nil?,
       hd, head: hd, first: hd, car: hd, tl, tail: tl, rest: tl, cdr: tl,
       keys, values, hasKey?, withKey, withoutKey,
-      magic?, closure?, function?, id, const, comp, curry, uncurry, partial,
-      🆔: id, ∘: comp,
-      chan?, dynamic!, dynamic?, getDynamic, letDynamic,
+      magic?, scopeKey, closure?, function?, id, const, comp, curry, uncurry,
+      partial, 🆔: id, ∘: comp,
+      chan?, dynamic!, dynamic?, getDynamic, letDynamic, signalHandler, name,
       eq?, equal?: eq?, equals?: eq?, =, ==: =, ⩵: =, /=, !=: /=, ≠: /=
     }

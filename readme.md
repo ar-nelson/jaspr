@@ -129,10 +129,11 @@ quoted to be literal. Numbers, booleans, nulls and objects evaluate as
 themselves, although the values of an object are evaluated as code unless the
 object is quoted.
 
-Closures in Jaspr are objects with `$closure` keys. Closures are slightly magic;
-a closure's scope can contain self-references, unlike all other Jaspr values.
-To keep cyclical values from leaking into other parts of the program, the
-`$closure` key cannot be converted to JSON.
+Closures in Jaspr are objects with a special randomly-generated marker key,
+which stores the closure's scope. Closures are slightly magic; a closure's scope
+can contain self-references, unlike all other Jaspr values. To keep cyclical
+values from leaking into other parts of the program, closures cannot be
+converted to JSON.
 
 Functions are closures with a `$code` key. A function is executed when it is the
 first element of an evaluated list. The code it contains is evaluated in the

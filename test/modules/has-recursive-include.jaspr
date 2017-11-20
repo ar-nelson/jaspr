@@ -1,5 +1,6 @@
 $schema: "http://adam.nels.onl/schema/jaspr/module"
 $module: jaspr-tests.has-recursive-include
+$version: "1.0"
 $include: ["included.jaspr", "recursive-include.jaspr"]
 
 original: 'original-value

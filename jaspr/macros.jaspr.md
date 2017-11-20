@@ -20,7 +20,7 @@ Wraps its argument in the Jaspr quote macro, `""`. Typically used in macros, whe
 
 Returns a string that is guaranteed to be unique, distinct from every other string used anywhere in the program. How this is done is implementation-dependent, but the default approach is to generate a random [UUID][uuid].
 
-    gensym!: (fn- ($gensym))
+    gensym!: (fn- (p.gensym!))
 
 `gensym!` is typically used in macros to generate names that are guaranteed not to collide with existing names.
 
@@ -94,7 +94,7 @@ The `comment` macro ignores its arguments and expands to `null`.
       (assertArgs (string? name) "name (1st arg) is not a literal string"
                   (object? args) "start value (2nd arg) is not an object"
         `[let ~({} name `[closure {}
-             (let ~($objectMake (fn- k `[~(quote k) (0 $args)]) (keys args)) ~body)])
+             (let ~(p.objectMake (fn- k `[~(quote k) (0 $args)]) (keys args)) ~body)])
            (~name ~args)]))
 
 ### `unless`

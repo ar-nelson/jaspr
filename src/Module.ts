@@ -4,12 +4,14 @@ import * as XRegExp from 'xregexp'
 import * as fs from 'fs'
 import * as path from 'path'
 import {
-  Jaspr, JasprObject, JasprError, Json, JsonObject, Deferred, Callback, Scope,
-  emptyScope, isArray, isObject
+  Jaspr, JasprObject, JasprError, Json, JsonObject, Deferred, Callback, isArray,
+  isObject, has
 } from './Jaspr'
-import {Env, evalDefs, deferExpandEval, isLegalName} from './Interpreter'
-import {has} from './BuiltinFunctions'
-import {prefix} from './ReservedNames'
+import {
+  Scope, emptyScope, mergeScopes, Env, evalDefs, deferExpandEval, isLegalName,
+  Namespace, qualify
+} from './Interpreter'
+import {prefix, primitiveModule} from './ReservedNames'
 import Parser from './Parser'
 import {parseMarkdown} from './LiterateParser'
 
@@ -21,12 +23,14 @@ export interface Import extends JsonObject {
   from: string
   via: ImportSource
   module: string
+  version: string | null
   names: boolean | { [as: string]: string }
 }
 
 export interface ModuleSource {
   $schema: string
   $module?: string
+  $version?: string
   $doc?: string
   $author?: string
   $main?: Json
@@ -35,9 +39,10 @@ export interface ModuleSource {
   [name: string]: Json | undefined
 }
 
-export interface Module extends Scope {
+export interface Module extends Scope, Namespace {
   $schema: string
   $module: string | null
+  $version: string | null
   $doc: string | null
   $author: string | null
   $main: Jaspr | Deferred
@@ -51,6 +56,7 @@ const githubRegex = /^https?:\/\/(www[.])?github[.]com\/[^\/]+\/[^\/]+/
 const httpRegex = /^https?:\/\/.+/
 const moduleSegment = '(\\pL|\\p{Pd}|\\p{Pc})(\\pL|\\pN|\\p{Pd}|\\p{Pc}|\\p{Sk})*'
 const moduleNameRegex = XRegExp(`^${moduleSegment}([.]${moduleSegment})*$`, 'A')
+
 
 function importSource(from: string): ImportSource {
   if (githubRegex.test(from)) return 'git'
@@ -71,9 +77,9 @@ function normalizeImports(imports?: Json): { [namespace: string]: Import } {
   return _.mapValues(imports, (imp, name): Import => {
     if (!moduleNameRegex.test(name)) throw {err: 'illegal import name', name}
     if (typeof imp === 'boolean') {
-      return {from: name, via: importSource(name), module: name, names: imp}
+      return {from: name, via: importSource(name), module: name, version: null, names: imp}
     } else if (typeof imp === 'string') {
-      return {from: imp, via: importSource(imp), module: name, names: {}}
+      return {from: imp, via: importSource(imp), module: name, version: null, names: {}}
     } else if (isObject(imp)) {
       if (imp.hasOwnProperty('from')) {
         if (typeof imp.from !== 'string') {
@@ -238,11 +244,11 @@ function mergeModules(
   left: ModuleSource, right: ModuleSource,
   lFilename: string, rFilename: string
 ): ModuleSource {
-  return _.mergeWith(left, right, (l: Json, r: Json, name: string): Json => {
+  return _.assignInWith(left, right, (l: Json, r: Json, name: string): Json => {
     if (l === undefined) return r
     if (r === undefined) return l
     function mergeNames(ln: any, rn: any, kind: string): Dictionary<string> {
-      return _.mergeWith(ln, rn, (l: string, r: string, name: string): string => {
+      return _.assignInWith(ln, rn, (l: string, r: string, name: string): string => {
         if (l === undefined) return r
         if (r === undefined) return l
         if (l !== r) throw {
@@ -255,7 +261,7 @@ function mergeModules(
     }
     switch (name) {
       case '$import':
-        return _.mergeWith(<any>l, <any>r,
+        return _.assignInWith(<any>l, <any>r,
           (l: Import, r: Import, name: string): Import => {
             if (l === undefined) return r
             if (r === undefined) return l
@@ -267,7 +273,7 @@ function mergeModules(
               }
             }
             return {
-              from: l.from, via: l.via, module: l.module,
+              from: l.from, via: l.via, module: l.module, version: null,
               names: mergeNames(l.names, r.names, 'imported value')
             }
           })
@@ -284,26 +290,64 @@ function mergeModules(
   })
 }
 
+function loadImport(
+  alias: string,
+  {from, via, module, version, names} : Import,
+  filename: string,
+  localModules = new Map<string, Module>()
+): Scope {
+  if (!moduleNameRegex.test(alias)) throw {
+    err: 'BadModule', why: 'illegal import alias; contains special characters',
+    alias, filename
+  }
+  if (via !== 'local') throw {
+    err: 'NotImplemented', why: `import loader ${via} is not yet implemented`,
+    filename
+  }
+  const imported = localModules.get(from)
+  if (!imported) throw {
+    err: 'BadModule', why: 'local import not found', importedModule: from,
+    filename
+  }
+  if (imported.$module == null) throw {
+    err: 'BadModule', why: 'cannot import script module', module: alias,
+    help: 'A module without a $module key is a script module, and cannot be imported.'
+  }
+  return importModule(imported, alias, names === true ? undefined : names || {})
+}
+
 export function evalModule(
   env: Env,
   module: ModuleSource,
-  options: {filename: string, scope?: Scope, runMain?: boolean},
+  options: {
+    filename: string,
+    scope?: Scope,
+    runMain?: boolean,
+    localModules?: Map<string, Module>
+  },
   cb: AsyncResultCallback<Module, JasprError>,
 ): void {
   const {runMain, filename} = options
-  const {$schema, $module, $main, $import, $export, $doc, $author} = module
+  const {$schema, $module, $version, $main, $import, $export, $doc, $author} = module
   if ($module === undefined && $main === undefined) return cb({
     err: 'BadModule', why: 'module must have either $module key or $main key',
     filename
   })
 
-  // TODO: Load imports
+  let evalScope
+  try {
+    evalScope = _.toPairs($import || {}).reduce(
+      (scope, [alias, imp]) => mergeScopes(env, scope,
+        loadImport(alias, ($import || {})[alias], filename,
+                   options.localModules)),
+      options.scope || emptyScope)
+  } catch (err) { return cb(err) }
 
   const defs: JasprObject = _.omit(
     _.pickBy(module, v => v !== undefined),
     ...Object.keys(module).filter(x => x.startsWith('$')))
-
-  evalDefs(env, $module || null, options.scope || emptyScope, defs, (err, scope) => {
+  const ns = {$module: $module || null, $version: $version || null}
+  evalDefs(env, ns, evalScope, defs, (err, scope) => {
     if (err || scope === undefined) return cb(err)
     
     // TODO: Remove this debug code!
@@ -328,12 +372,13 @@ export function evalModule(
 
     scope.$schema = $schema
     scope.$module = $module || null
+    scope.$version = $version || null
     scope.$doc = $doc || null
     scope.$author = $author || null
-    scope.$import = $import || {}
-    scope.$export = $export || {}
+    scope.$import = $import || Object.create(null)
+    scope.$export = $export || Object.create(null)
     scope.$main = runMain && $main !== undefined
-      ? deferExpandEval(env, scope, $main, '$main', $module)
+      ? deferExpandEval(env, scope, $main, qualify(ns, '$main'))
       : null
     cb(undefined, <Module>scope)
   })
@@ -341,26 +386,36 @@ export function evalModule(
 
 export function importModule(
   module: Module,
-  filename: string,
-  cb: AsyncResultCallback<Module, JasprError>
-): void {
-  const name = module.$module
-  if (name == null) return cb({
-    err: 'BadModule', why: 'cannot import script module', filename,
-    help: 'A module without a $module key is a script module, and cannot be imported.'
-  })
-  function onlyExports<T>(sc: any): any {
-    return _.transform(module.$export, (def, exported, as) => {
-      if (has(sc, `${name}.${exported}`)) {
-        def[`${name}.${as}`] = def[as] = sc[`${name}.${exported}`]
+  alias = module.$module,
+  names: Dictionary<string> =
+    _(module.$export).keys().map(k => [k, k]).fromPairs().value()
+): Scope {
+  function onlyExports<T>(sc: Dictionary<T>): Dictionary<T> {
+    const out: Dictionary<T> = Object.create(null)
+    _.forIn(module.$export, (exported, as) => {
+      const qualified = qualify(module, exported)
+      if (has(sc, qualified)) {
+        out[qualify(module, as)] = sc[qualified]
+        if (alias) out[`${alias}.${as}`] = sc[qualified]
       }
-      return true
-    }, Object.create(null))
+    })
+    // TODO: Raise BadModule if a name does not refer to an actual import
+    _.forIn(names, (imported, as) => {
+      const qualified = qualify(module, imported)
+      if (has(out, qualified)) out[as] = out[qualified]
+    })
+    return out
   }
-  const out: any =
+  const out: Scope = <any>
     _(module).omit('test', 'qualified')
-             .mapValues((v, k) => k.startsWith('$') ? v : onlyExports(v))
+             .omitBy((v, k) => k.startsWith('$'))
+             .mapValues((v: Jaspr, k) => isObject(v) ? onlyExports(v) : v)
              .value()
-  out.qualified = _.mapValues(module.$export, (v, k) => `${name}.${k}`)
-  cb(undefined, out)
+  out.test = Object.create(null)
+  out.qualified = Object.create(null)
+  _.toPairs(names).concat(<any>(
+    alias ? _.keys(module.$export).map(k => [`${alias}.${k}`, k]).concat() : [])
+  ).forEach(([as, imported]) =>
+    out.qualified[as] = qualify(module, imported))
+  return out
 }

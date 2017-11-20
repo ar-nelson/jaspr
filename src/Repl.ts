@@ -2,18 +2,20 @@ import chalk from 'chalk'
 import * as readline from 'readline'
 import {waterfall} from 'async'
 
-import {Jaspr, JasprError, Json, Scope, Callback, emptyScope, resolveFully} from './Jaspr'
-import {Env, Action, macroExpand, evalExpr} from './Interpreter'
+import {Jaspr, JasprError, Json, Callback, resolveFully} from './Jaspr'
+import {Scope, emptyScope, Env, Action, macroExpand, evalExpr} from './Interpreter'
 import {readModuleFile, evalModule, importModule, ModuleSource, Module} from './Module'
 import Fiber from './Fiber'
 import Parser from './Parser'
 import prettyPrint from './PrettyPrint'
+import prim from './JasprPrimitive'
+import {version, primitiveModule} from './ReservedNames'
 
 const banner = `
 ⎧                          ⎫
 ⎪  { Jaspr: (JSON Lisp) }  ⎪
 ⎨                          ⎬
-⎪    Version 0.1.171103    ⎪
+⎪    Version ${version}    ⎪
 ⎩      Adam R. Nelson      ⎭
 
 Use CTRL-C to exit.
@@ -38,19 +40,16 @@ const waitPrompt = chalk.gray('⏱?')
 const root = Fiber.newRoot(handleError)
 let parser = new Parser('REPL input')
 let continued = false
+let ready = false
 
 const filename = 'jaspr/jaspr.jaspr.md'
 const scopePromise = new Promise<Scope>(resolve => {
-  const moduleRoot = Fiber.newRoot((env, err, cb) => {
-    console.error(chalk.redBright('\n⚠☠ Error occurred in standard library.'))
-    console.error(prettyPrint(err))
-    return process.exit(1)
-  })
   waterfall<Module, JasprError>([
     (cb: any) => readModuleFile(filename, cb),
-    (mod: ModuleSource, cb: any) => evalModule(moduleRoot, mod, {filename}, cb),
-    (mod: Module, cb: any) => importModule(mod, filename, cb),
-    resolveFully
+    (mod: ModuleSource, cb: any) => evalModule(root, mod, {
+      filename, localModules: new Map([[primitiveModule, prim(root)]])
+    }, cb),
+    (mod: Module, cb: any) => resolveFully(importModule(mod), cb)
   ], (err, mod) => {
     if (err) {
       console.error(chalk.redBright('\n⚠☠ Failed to load standard library.'))
@@ -58,6 +57,7 @@ const scopePromise = new Promise<Scope>(resolve => {
       else console.error(prettyPrint(err))
       return process.exit(1)
     }
+    ready = true
     resolve(mod)
   })
 })
@@ -82,10 +82,19 @@ function setState(st: State) {
   state = st
 }
 
-function handleError(env: Env, err: Jaspr, cb: Callback) {
+function handleError(env: Env, err: Jaspr, raisedBy: Fiber, cb: Callback) {
+  if (!ready) {
+    console.error(chalk.redBright('\n⚠☠ Error occurred in standard library.'))
+    console.error(prettyPrint(err))
+    console.error('\nStack trace:')
+    console.error(raisedBy.stackTraceString())
+    return process.exit(1)
+  }
   if (timeout != null) clearTimeout(timeout)
   console.log(`\n${chalk.redBright('UNHANDLED SIGNAL')} raised in fiber ${promptNumber()}:`)
   console.log(prettyPrint(err))
+  console.log('\nStack trace:')
+  console.log(raisedBy.stackTraceString())
   console.log('\nEnter a replacement expression to resume from where the signal was raised.')
   console.log(`Leave blank and press ENTER to cancel fiber ${promptNumber()} and continue.\n`)
   errorCallback = cb

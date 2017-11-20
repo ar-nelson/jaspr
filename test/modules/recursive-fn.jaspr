@@ -1,11 +1,18 @@
 $schema: "http://adam.nels.onl/schema/jaspr/module"
 $module: jaspr-tests.recursive-fn
+$version: "1.0"
+
+$import: {jaspr.primitive}
 
 factorial:
-($closure {}
-  ($if ($less (0 $args) 1)
-       1
-       ($multiply (0 $args) (factorial ($subtract (0 $args) 1))))
+(jaspr.primitive.closure
+  {}
+  (jaspr.primitive.if
+    (jaspr.primitive.< (0 $args) 1)
+    1
+    (jaspr.primitive.multiply
+      (0 $args)
+      (factorial (jaspr.primitive.subtract (0 $args) 1))))
   {})
 
 five-factorial: (factorial 5)

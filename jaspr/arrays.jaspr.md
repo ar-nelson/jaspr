@@ -37,7 +37,7 @@ A backwards `cons`. `(snoc xs x0 x1 ... xn)` constructs a new array made up of t
     (fn* args
       (assertArgs args "expected at least one argument"
                   (array? (hd args)) "not an array"
-                  ($arrayConcat (hd args) (tl args))))
+                  (p.arrayConcat (hd args) (tl args))))
 
 ### `cat`
 
@@ -48,8 +48,8 @@ A backwards `cons`. `(snoc xs x0 x1 ... xn)` constructs a new array made up of t
       (case= (len args)
         0 []
         1 (0 args)
-        2 ($arrayConcat (0 args) (1 args))
-        ($arrayConcat (hd args) (apply cat (tl args)))))
+        2 (p.arrayConcat (0 args) (1 args))
+        (p.arrayConcat (hd args) (apply cat (tl args)))))
 
 ### `range`
 
@@ -83,7 +83,7 @@ Returns the _tail_ (all but the first element) of an array. `tl` raises a `BadAr
 
 ### `init`
 
-    init: (fn- xs ($arraySlice 0 (dec (len xs)) xs))
+    init: (fn- xs (p.arraySlice 0 (dec (len xs)) xs))
 
 ### `take`
 
@@ -91,7 +91,7 @@ Returns the _tail_ (all but the first element) of an array. `tl` raises a `BadAr
     (fn- n xs
       (assertArgs (integer? n) "not an integer"
                   (array? xs) "not an array"
-                  ($arraySlice 0 n xs)))
+                  (p.arraySlice 0 n xs)))
 
 ### `drop`
 
@@ -99,7 +99,7 @@ Returns the _tail_ (all but the first element) of an array. `tl` raises a `BadAr
     (fn- n xs
       (assertArgs (integer? n) "not an integer"
                   (array? xs) "not an array"
-                  ($arraySlice n (len xs) xs)))
+                  (p.arraySlice n (len xs) xs)))
 
 ### `takeRight`
 
@@ -107,7 +107,7 @@ Returns the _tail_ (all but the first element) of an array. `tl` raises a `BadAr
     (fn- n xs
       (assertArgs (integer? n) "not an integer"
                   (array? xs) "not an array"
-                  ($arraySlice (- (len xs) n) (len xs) xs)))
+                  (p.arraySlice (- (len xs) n) (len xs) xs)))
 
 ### `dropRight`
 
@@ -115,7 +115,7 @@ Returns the _tail_ (all but the first element) of an array. `tl` raises a `BadAr
     (fn- n xs
       (assertArgs (integer? n) "not an integer"
                   (array? xs) "not an array"
-                  ($arraySlice 0 (- (len xs) n) xs)))
+                  (p.arraySlice 0 (- (len xs) n) xs)))
 
 ### `slice`
 
@@ -125,12 +125,12 @@ Returns the _tail_ (all but the first element) of an array. `tl` raises a `BadAr
         2 (let {start: (0 args) xs: (1 args)}
             (assertArgs (integer? start) "start is not an integer"
                         (array? xs) "not an array"
-                        ($arraySlice start (len xs) xs)))
+                        (p.arraySlice start (len xs) xs)))
         3 (let {start: (0 args) end: (1 args) xs: (2 args)}
             (assertArgs (integer? start) "start is not an integer"
                         (integer? end) "end is not an integer"
                         (array? xs) "not an array"
-                        ($arraySlice start end xs)))
+                        (p.arraySlice start end xs)))
         (raise {
           err: 'BadArgs why: "expected 2 or 3 arguments"
           fn: (myName) args

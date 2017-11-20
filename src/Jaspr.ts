@@ -25,42 +25,17 @@ export interface JasprArray extends Array<Jaspr | Deferred> {}
 /** An object containing only Jaspr values */
 export interface JasprObject { [key: string]: Jaspr | Deferred }
 
-export interface Scope extends JasprObject {
-  value: JasprObject
-  macro: JasprObject
-  check: JasprObject
-  test: JasprObject
-  doc: { [name: string]: string }
-  qualified: { [name: string]: string }
-}
-export const emptyScope: Scope =
-  {value: {}, macro: {}, check: {}, doc: {}, test: {}, qualified: {}}
-
-/** 
- * A closure, with magic `$closure` property containing the closed-over lexical
- * context. If it is an executable closure (a function), it will also have a
- * `$code` property containing the executable Jaspr code of the function.
- */
-export interface JasprClosure extends JasprObject {
-  $closure: Scope
-}
-
 /** Magic Jaspr values contain extra data stored in a hidden Symbol property. */
 export const magicSymbol = Symbol("magic")
-
-export const closureMarker = {}
-export const dynamicMarker = {}
 
 export type Err =
   'NoBinding' | 'NoKey' | 'NoMatch' | 'BadName' | 'BadArgs' | 'BadModule' |
   'BadPattern' | 'NotCallable' | 'NoPrimitive' | 'NotJSON' | 'ChanClosed' |
-  'ParseFailed' | 'EvalFailed' | 'ReadFailed' | 'WriteFailed' | 'NativeError'
+  'ParseFailed' | 'EvalFailed' | 'ReadFailed' | 'WriteFailed' | 'NativeError' |
+  'NotImplemented'
 
 export interface JasprError extends JasprObject {
   err: Err, why: string
-}
-export interface JasprDynamic extends JasprObject {
-  $dynamic: true, $default: Jaspr | Deferred
 }
 
 export type Callback = (x: Jaspr) => void
@@ -70,7 +45,7 @@ export type ErrCallback = (err: JasprError | null, x: Jaspr) => void
  * A Deferred object is a lazy value. It is a simplified promise, without
  * chaining, error handling, or any of the other ES2015 Promise features.
  */
-export class Deferred {
+export class Deferred /*implements PromiseLike<Jaspr>*/ {
   value: Jaspr | undefined = undefined
   listeners: Callback[] = []
   canceled: boolean = false
@@ -82,7 +57,7 @@ export class Deferred {
    * (synchronously) if it has already resolved.
    */
   await(cb: Callback): void {
-    if (this.canceled) throw new Error(`Cannot resolve ${this}; it is canceled`)
+    if (this.canceled) return
     if (this.value === undefined) this.listeners.push(cb)
     else cb(this.value)
   }
@@ -111,6 +86,18 @@ export class Deferred {
     else if (this.value === undefined) return "(unresolved)"
     else return `(resolved: ${toString(this.value)})`
   }
+
+  /*then<T, E>(
+    onFulfilled: (x: Jaspr) => T | PromiseLike<T>,
+    onRejected?: (e: Error) => E | PromiseLike<E>
+  ) : PromiseLike<T | E> {
+    if (this.canceled) {
+      const err = new Error(`Cannot resolve ${this}; it is canceled`)
+      if (onRejected) return Promise.resolve(onRejected(err))
+      else return Promise.reject(err)
+    } else return new Promise(resolve =>
+      this.await(v => resolve(onFulfilled(v))))
+  }*/
 }
 
 export const isArray: (it: Jaspr) => it is JasprArray = Array.isArray
@@ -118,21 +105,8 @@ export function isObject(it: Jaspr): it is JasprObject {
   return typeof it === 'object' && it != null && !isArray(it) &&
          !(it instanceof Deferred)
 }
-export function isClosure(it: Jaspr): it is JasprClosure {
-  return isObject(it) && Names.closure in it
-}
 export function isMagic(it: Jaspr) {
   return isObject(it) && magicSymbol in it
-}
-export function isDynamic(it: Jaspr): it is JasprDynamic {
-  return isObject(it) && it[magicSymbol] === dynamicMarker
-}
-export function makeDynamic(defaultValue: Jaspr | Deferred): JasprDynamic {
-  return <JasprDynamic>{
-    [Names.dynamic]: true,
-    [Names.default_]: defaultValue,
-    [magicSymbol]: dynamicMarker
-  }
 }
 export function toBool(a: Jaspr): boolean {
   if (typeof a === 'boolean') return a
@@ -219,6 +193,13 @@ export function resolveFully(root: Jaspr, cb: ErrCallback, jsonOnly = false): vo
   loop(root)
 }
 
+export function has(obj: {}, key: string): boolean {
+  for (let proto = obj; proto != null; proto = Object.getPrototypeOf(proto)) {
+    if (Object.prototype.propertyIsEnumerable.call(proto, key)) return true
+  }
+  return false
+}
+
 export function toJson(x: Jaspr, cb: (err: JasprObject | null, json: Json) => void): void {
   return resolveFully(x, cb, true)
 }
@@ -239,8 +220,8 @@ function quoteString(str: string): string {
 }
 
 export function toString(it: Jaspr, bareString = false, alwaysQuote = false): string {
-  if (isClosure(it) && isMagic(it)) {
-    return '(closure)'
+  if (isMagic(it)) {
+    return '(magic)'
   } else if (isObject(it)) {
     return `{${_.join(_.toPairs(it).map(([k, v]) => toString(k) + ': ' + toString(v)), ', ')}}`
   } else if (isArray(it)) {

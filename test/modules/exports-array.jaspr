@@ -1,5 +1,6 @@
 $schema: "http://adam.nels.onl/schema/jaspr/module"
 $module: jaspr-tests.exports-array
+$version: "1.0"
 
 a: 1
 b: 2

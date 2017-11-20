@@ -1,5 +1,6 @@
 $schema: "http://adam.nels.onl/schema/jaspr/module"
 $module: jaspr-tests.macros
+$version: "1.0"
 
 macro.quote: ($closure {} ([] "" (0 $args)) {})
 quoted: (quote quoted-value)

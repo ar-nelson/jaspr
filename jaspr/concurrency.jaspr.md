@@ -18,9 +18,9 @@ Data structures (arrays and objects) in Jaspr are lazy, although not to the exte
 
 For example, consider the following expression:
 
->     (hd ([] ($add 1 1) (await (sleep 1000)
->                               ($print “foo”)
->                               42))) ;= 2
+>     (hd ([] (p.add 1 1) (await (sleep 1000)
+>                                (p.print! “foo”)
+>                                42))) ;= 2
 
 `hd` returns the first element of the array, `(+ 1 1)`, which evaluates to 2. The second element, which will take 1 second to compute and cause a side effect, is not relevant to the result.
 
@@ -34,13 +34,13 @@ For example, consider the following expression:
 
 A function call that never returns. **Be careful:** using this can deadlock a program!
 
-    never: (fn- ($chanSend null ($chanMake)))
+    never: (fn- (p.chanSend! null (p.chanMake!)))
 
 ### `sleep`
 
 `(sleep ms)` returns `null` after `ms` milliseconds have passed.
 
-    sleep: (fn- ms ($sleep ms))
+    sleep: (fn- ms (p.sleep ms))
 
 ### `onCancel`
 
@@ -68,8 +68,8 @@ TODO: Implement `onCancel`.
     macro.await:
     (fn* exprs
       (if (no exprs) null
-          ($less (len exprs) 2) (hd exprs)
-          `[$then ~(hd exprs) (await ~@(tl exprs))]))
+          (p.< (len exprs) 2) (hd exprs)
+          `[p.then ~(hd exprs) (await ~@(tl exprs))]))
 
 ### `awaitAll`
 
@@ -82,10 +82,9 @@ TODO: Implement `onCancel`.
     macro.awaitAll:
     (fn* exprs
       (if (no exprs) null
-          ($less (len exprs) 2) (hd exprs)
-          (let {a: ($gensym) b: ($gensym)}
-            `[let ~({} a (hd exprs) b `[awaitAll ~@(tl exprs)])
-                  ($then ~a ~b)])))
+          (p.is? 1 (len exprs)) (hd exprs)
+          `[let {.a.: ~(hd exprs), .b.: (awaitAll ~@(tl exprs))}
+                (p.then .a. .b.)]))
 
 ### `choice`
 
@@ -96,7 +95,7 @@ TODO: Implement `onCancel`.
 
 Choice junctions are the only way to cancel fibers. A typical use case is to create timeouts. For example, `(choice (sleep 100) (recv! c))` will receive on `c` with a 100ms timeout, stopping the `recv!` operation once the timeout is up. `(choice (sleep 100) (send! x c))` will attempt to send `x` on `c` with a 100ms timeout, but, if nothing receives it, the `send!` will be canceled and a future `(recv! c)` will not receive `x`.
 
-    macro.choice: (fn* exprs `[$junction ~@exprs])
+    macro.choice: (fn* exprs `[p.junction ~@exprs])
 
 ## Channels
 
@@ -110,8 +109,8 @@ Values must be fully resolved before they can be sent on a channel. This prevent
 
 `(chan!)` creates a new channel. It takes an optional argument, the name of the channel: `(chan! “foo”)` returns a channel named `“foo”`. Channel names are not unique identifiers; they are just an extra property `$name` on the channel object for debugging purposes.
 
-    chan!: (fn* args (if args (withKey “$name” ($toString (0 args)) ($chanMake))
-                              ($chanMake)))
+    chan!: (fn* args (if args (withKey “$name” (p.toString (0 args)) (p.chanMake!))
+                              (p.chanMake!)))
 
 ### `send!`
 
@@ -122,7 +121,7 @@ Unlike other Jaspr functions, `send!` is strict, not lazy. If `msg` or any eleme
 `send!` raises a `BadArgs` error if `chan` is not a channel.
 
     send!: (fn- msg chan (assertArgs (chan? chan) “not a channel”
-                                     ($chanSend msg chan)))
+                                     (p.chanSend! msg chan)))
 
 ### `recv!`
 
@@ -131,21 +130,21 @@ Unlike other Jaspr functions, `send!` is strict, not lazy. If `msg` or any eleme
 `recv!` raises a `BadArgs` error is `chan` is not a channel, or if `chan` is closed. Closing a channel while a `recv!` is waiting will cause the `recv!` call to raise a `ChanClosed` error.
 
     recv!: (fn- chan (assertArgs (chan? chan) “not a channel”
-                                 ($chanRecv chan)))
+                                 (p.chanRecv! chan)))
 
 ### `close!`
 
 Closes a channel. Returns `true` if the channel was not yet closed, or `false` if the channel was already closed (and the `close!` call did nothing). Raises a `BadArgs` error if its argument is not a channel.
 
     close!: (fn- chan (assertArgs (chan? chan) “not a channel”
-                                  ($chanClose chan)))
+                                  (p.chanClose! chan)))
 
 ### `closed?`
 
 Returns a boolean indicating whether its argument, a channel, is closed. Raises a `BadArgs` error if its argument is not a channel.
 
     closed?: (fn- chan (assertArgs (chan? chan) “not a channel”
-                                   ($chanIsClosed chan)))
+                                   (p.chanClosed? chan)))
 
 ## Advanced Channel Operations
 
@@ -222,7 +221,7 @@ Returns a boolean indicating whether its argument, a channel, is closed. Raises 
 
     get!:
     (fn- ref
-      (assertArgs (ref? ref) "not a ref"
+      (assertArgs (ref? ref) “not a ref”
         (let {chan: (chan!)}
           (do (send! {get: chan} ('chan ref))
               (recv! chan)))))
@@ -231,7 +230,7 @@ Returns a boolean indicating whether its argument, a channel, is closed. Raises 
 
     set!:
     (fn- value ref
-      (assertArgs (ref? ref) "not a ref"
+      (assertArgs (ref? ref) “not a ref”
         (send! {set: value} ('chan ref))))
 
 ### Queues
@@ -260,13 +259,13 @@ Returns a boolean indicating whether its argument, a channel, is closed. Raises 
 
     enqueue!:
     (fn- value queue
-      (assertArgs (queue? queue) "not a queue"
+      (assertArgs (queue? queue) “not a queue”
         (send! value ('enqueue queue))))
 
 #### `dequeue!`
 
     dequeue!:
-    (fn- queue (assertArgs (queue? queue) "not a queue"
+    (fn- queue (assertArgs (queue? queue) “not a queue”
                  (recv! ('dequeue queue))))
 
 ## Exports

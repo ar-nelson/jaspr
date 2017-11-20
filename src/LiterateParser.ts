@@ -136,6 +136,6 @@ export function parseMarkdown(src: string, filename?: string): JsonObject {
     throw new Parser.ParseError(
       "Literate Jaspr file must produce an object", srcParser)
   }
-  return _.merge(result, _.mapKeys(doc, (v, k) => 'doc.' + k),
-                         _.mapKeys(tests, (v, k) => 'test.' + k))
+  return _.assign(result, _.mapKeys(doc, (v, k) => 'doc.' + k),
+                          _.mapKeys(tests, (v, k) => 'test.' + k))
 }

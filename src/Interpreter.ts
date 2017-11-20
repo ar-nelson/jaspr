@@ -1,26 +1,62 @@
 import * as _ from 'lodash'
 import * as async from 'async'
 import {legalName, number} from './Parser'
-import builtins from './BuiltinFunctions'
 import * as Names from './ReservedNames'
+import {NativeFn} from './NativeFn'
 import {
-  Jaspr, JasprArray, JasprObject, JasprClosure, JasprError, JasprDynamic, Scope,
-  isArray, isObject, isClosure, isDynamic, Deferred, Callback, getIndex, getKey,
-  resolveArray, resolveObject, resolveFully, toString, toBool, emptyScope,
-  magicSymbol, closureMarker, makeDynamic,
+  Jaspr, JasprArray, JasprObject, JasprError, isArray, isObject, Deferred,
+  Callback, getIndex, getKey, resolveArray, resolveObject, resolveFully,
+  toString, toBool, magicSymbol
 } from './Jaspr'
+
+export interface Scope extends JasprObject {
+  value: JasprObject
+  macro: JasprObject
+  check: JasprObject
+  test: JasprObject
+  doc: { [name: string]: string }
+  qualified: { [unqualified: string]: string }
+}
+
+export const emptyScope: Scope =
+  {value: {}, macro: {}, check: {}, doc: {}, test: {}, qualified: {}}
+
+export interface JasprDynamic extends JasprObject {
+  $dynamic: true, $default: Jaspr | Deferred
+}
+
+export function isDynamic(it: Jaspr): it is JasprDynamic {
+  return isObject(it) && it[magicSymbol] === dynamicMarker
+}
+
+export function makeDynamic(defaultValue: Jaspr | Deferred): JasprDynamic {
+  return <JasprDynamic>{
+    [Names.dynamic]: true,
+    [Names.default_]: defaultValue,
+    [magicSymbol]: dynamicMarker
+  }
+}
+
+export function isClosure(env: Env, it: Jaspr): it is JasprObject {
+  return (isObject(it) && env.closureName in it)
+}
 
 export interface Env {
   defer(options: DeferOptions): Deferred
   unhandledError(err: Jaspr, cb: Callback): void
   getDynamic(dyn: JasprDynamic, cb: Callback): void
   testFailure(err: Error): void
+  gensym(prefix?: string): string
+  closureName: string
+  signalHandlerVar: JasprDynamic
+  nameVar: JasprDynamic
 }
 
 export type DeferOptions = {
   fn: (env: Env, cb: Callback) => void
   action?: Action
   code?: Jaspr | Deferred
+  name?: string
   inherit?: boolean
   junction?: boolean
   dynamics?: [JasprDynamic, Jaspr | Deferred][]
@@ -28,16 +64,6 @@ export type DeferOptions = {
 
 export enum Action {
   Eval, MacroExpand, Check, Junction, Send, Recv, External
-}
-
-export namespace Dynamics {
-  export const signalHandler =
-    makeDynamic({
-      [Names.closure]: {},
-      [Names.code]: [Names.unhandledError, [0, Names.args]]
-    })
-  export const name = makeDynamic(null)
-  export const module = makeDynamic(null)
 }
 
 export function isLegalName(name: string) {
@@ -52,22 +78,49 @@ export function waitFor(v: Jaspr | Deferred, cb: Callback): void {
   else cb(v)
 }
 
+export function mergeScopes(env: Env, ...scopes: Scope[]): Scope {
+  return scopes.reduce((l, r) => _.assignInWith(l, r,
+    (l: Jaspr | Deferred, r: Jaspr | Deferred, name: string): Jaspr | Deferred => {
+      if (r === undefined || name.startsWith('$')) return l
+      if (l === undefined) return r
+      if (l instanceof Deferred || r instanceof Deferred) {
+        const d = new Deferred()
+        waitFor(l, l => waitFor(r, r => d.resolve(
+          isObject(l) && isObject(r) ? _.assignIn({}, l, r) : l)))
+        return d
+      } else {
+        return isObject(l) && isObject(r) ? _.assignIn({}, l, r) : l
+      }
+    }), {value: {}, macro: {}, check: {}, doc: {}, test: {}, qualified: {}})
+}
+
 const unexpandedSymbol = Symbol('unexpandedMacros')
 
-export function raise(env: Env, error: JasprError, cb: Callback): void {
-  env.getDynamic(Dynamics.signalHandler, handler => {
-    if (handler && isClosure(handler) && Names.code in handler) {
-      // Call the error handler. Code borrowed from call(), but with a small
-      // modification: the call fiber is not adjacent to the fiber that threw
-      // the error.
-      resolveObject(handler, ({[Names.code]: code, [Names.closure]: scope}) => {
+export const closureMarker = {}
+export const dynamicMarker = {}
+
+function callClosure(
+  env: Env, closure: JasprObject, args: JasprArray, inherit: boolean, cb: Callback
+): void {
+  resolveObject(closure,
+    ({[Names.code]: code, [env.closureName]: scope, [magicSymbol]: magic}) => {
+      if (magic instanceof NativeFn) magic.call(env, args, cb)
+      else {
         const newScope: Scope =
-          _.create(scope, {value: _.create(scope.value, {[Names.args]: [error]})})
+          _.create(scope, {value: _.create(scope.value, {[Names.args]: args})})
         env.defer({
-          action: Action.Eval, code,
+          action: Action.Eval, code, inherit,
+          name: magic ? (magic.name || undefined) : undefined,
           fn: (env, cb) => evalExpr(env, newScope, code, cb)
         }).await(cb)
+      }
       })
+}
+
+export function raise(env: Env, error: JasprError, cb: Callback): void {
+  env.getDynamic(env.signalHandlerVar, handler => {
+    if (handler && isClosure(env, handler) && Names.code in handler) {
+      callClosure(env, handler, [error], false, cb)
     } else env.unhandledError(error, cb)
   })
 }
@@ -78,7 +131,17 @@ export function macroExpandTop(env: Env, scope: Scope, code: Jaspr, cb: Callback
     else getIndex(0, code, (err, fn) => {
       if (fn === Names.syntaxQuote) {
         if (code.length === 2) {
-          getIndex(1, code, (err, x) => syntaxQuote(x, (err, y) => {
+          const syms = new Map<string, string>()
+          function gensyms(name: string): string {
+            let sym = syms.get(name)
+            if (!sym) {
+              sym = env.gensym(name)
+              syms.set(name, sym)
+            }
+            return sym
+          }
+          getIndex(1, code, (err, x) =>
+            syntaxQuote(x, scope.qualified, gensyms, (err, y) => {
             if (err) raise(env, err, cb)
             else env.defer({
               action: Action.MacroExpand,
@@ -105,14 +168,15 @@ export function macroExpandTop(env: Env, scope: Scope, code: Jaspr, cb: Callback
   } else cb(code)
 }
 
+function isLiteral(code: Jaspr | Deferred) {
+  return !code || code === true || typeof code === "number" || _.isEmpty(code)
+}
+
 export function macroExpand(env: Env, scope: Scope, code: Jaspr, cb: Callback): void {
   function deferExpand(code: Jaspr | Deferred, k: number | string): Jaspr | Deferred {
-    if (!code || code === true || typeof code === "number" ||
-        typeof code === "string" || k === Names.closure) {
-      return code
-    }
-    return env.defer({
-      action: Action.MacroExpand, code, inherit: true,
+    if (isLiteral(code) || typeof code === "string") return code
+    else return env.defer({
+      action: Action.MacroExpand, code,// inherit: true,
       fn: (env, cb) => waitFor(code, c => macroExpand(env, scope, c, cb))
     })
   }
@@ -143,7 +207,7 @@ export function macroExpand(env: Env, scope: Scope, code: Jaspr, cb: Callback): 
             } else cb([Names.closure,
               _.mapValues(defs, (code, name) => env.defer({
                 action: Action.MacroExpand, code, inherit: true,
-                dynamics: [[Dynamics.name, name], [Dynamics.module, null]],
+                dynamics: [[env.nameVar, name]],
                 fn: (env, cb) => waitFor(code, c => macroExpand(env, scope, c, cb))
               })),
               deferExpand(code[2], 2),
@@ -156,8 +220,13 @@ export function macroExpand(env: Env, scope: Scope, code: Jaspr, cb: Callback): 
   })
 }
 
+const gensymRegex = /^[.]([^.]+)[.]$/
+
 function innerSyntaxQuote(
-  code: Jaspr, cb: (err: JasprError | null, value: Jaspr, isFlattened: boolean) => void
+  code: Jaspr,
+  qualified: Dictionary<string>,
+  gensyms: (name: string) => string,
+  cb: (err: JasprError | null, value: Jaspr, isFlattened: boolean) => void
 ): void {
   if (isArray(code) && code.length > 0) {
     getIndex(0, code, (err, fn) => {
@@ -180,7 +249,7 @@ function innerSyntaxQuote(
         } else {
           let toConcat: Jaspr[] = [], currentArray: Jaspr[] = []
           async.eachSeries<Jaspr, JasprError | null>(xs,
-            (x, cb) => innerSyntaxQuote(x, (err, v, flat) => {
+            (x, cb) => innerSyntaxQuote(x, qualified, gensyms, (err, v, flat) => {
               if (err) return cb(err)
               if (flat) {
                 if (currentArray.length > 0) {
@@ -195,7 +264,7 @@ function innerSyntaxQuote(
               else if (toConcat.length === 0) cb(null, [[], ...currentArray], false)
               else {
                 if (currentArray.length > 0) toConcat.push([[], ...currentArray])
-                cb(null, [Names.arrayConcat, ...toConcat], false)
+                cb(null, [Names.arrayConcatQualified, ...toConcat], false)
               }
             })
         }
@@ -204,13 +273,27 @@ function innerSyntaxQuote(
   } else if (isObject(code)) {
     resolveObject(code, obj =>
       async.mapValues<Jaspr, Jaspr, JasprError | null>(obj,
-        (v, k, cb) => syntaxQuote(v, cb),
-        (err, res) => cb(<JasprError|null>err, <JasprObject>res, false)))
-  } else cb(null, ['', code], false)
+        (v, k, cb) => syntaxQuote(v, qualified, gensyms, cb),
+        (err, res) =>
+          cb(err || null, <Jaspr>_.mapKeys(res || {}, (v, k) => {
+            const gensymMatch = gensymRegex.exec(k)
+            return gensymMatch ? gensyms(gensymMatch[1]) : k
+          }), false)))
+  } else if (typeof code === 'string') {
+    const gensymMatch = gensymRegex.exec(code)
+    cb(null, ['',
+      gensymMatch ? gensyms(gensymMatch[1]) :
+      typeof qualified[code] === 'string' ? qualified[code] : code], false)
+  } else cb(null, code, false)
 }
 
-function syntaxQuote(code: Jaspr, cb: AsyncResultCallback<Jaspr, JasprError | null>): void {
-  innerSyntaxQuote(code, (err, value, isFlattened) => {
+function syntaxQuote(
+  code: Jaspr,
+  qualified: Dictionary<string>,
+  gensyms: (name: string) => string,
+  cb: AsyncResultCallback<Jaspr, JasprError | null>,
+): void {
+  innerSyntaxQuote(code, qualified, gensyms, (err, value, isFlattened) => {
     if (err) cb(err, null)
     else if (isFlattened) cb({
       err: 'NotCallable', why: 'encountered ~@ outside of array',
@@ -220,107 +303,69 @@ function syntaxQuote(code: Jaspr, cb: AsyncResultCallback<Jaspr, JasprError | nu
   })
 }
 
-export function call(env: Env, callee: Jaspr, args: JasprArray, cb: Callback): void {
-  if (isClosure(callee)) {
-    if (Names.code in callee) resolveObject(callee,
-      ({[Names.code]: code, [Names.closure]: scope}) => {
-        const newScope: Scope =
-          _.create(scope, {value: _.create(scope.value, {[Names.args]: args})})
-        env.defer({
-          action: Action.Eval, code, inherit: true,
-          fn: (env, cb) => evalExpr(env, newScope, code, cb)
-        }).await(cb)
-      })
-    else raise(env, {
-      err: 'NotCallable', why: 'closure has no code', callee, args
-    }, cb)
+export function call(
+  env: Env, callee: Jaspr, args: JasprArray, cb: Callback, inherit = true
+): void {
+  const badArgs = (why: string, extras = {}) =>
+    raise(env, <any>_.assign({err: 'BadArgs', why, fn: callee, args}, extras), cb)
+  const notCallable = (why: string) =>
+    raise(env, {err: 'NotCallable', why, callee, args}, cb)
+  if (isClosure(env, callee)) {
+    if (Names.code in callee) callClosure(env, callee, args, true, cb)
+    else notCallable('closure has no code')
   } else if (isArray(callee)) {
-    if (callee.length == 0) cb(args)
-    else raise(env, {
-      err: 'NotCallable', why: 'cannot call a non-empty array', callee, args
-    }, cb)
+    if (callee.length === 0) cb(args)
+    else notCallable('cannot call a non-empty array')
   } else if (isObject(callee)) {
     if (_.isEmpty(callee)) {
-      if (args.length % 2 != 0) raise(env, {
-        err: 'BadArgs', why: '{} takes an even number of arguments',
-        fn: callee, args
-      }, cb)
+      if (args.length % 2 !== 0) badArgs('{} takes an even number of arguments')
       else async.parallel(
         _.range(0, args.length, 2).map(i =>
           (cb: (err?: JasprError, x?: [string, Jaspr | Deferred]) => void) =>
             getIndex(i, args, (err, key) => {
               if (err) cb(err)
               else if (typeof key !== 'string') {
-                cb({ err: 'BadArgs', why: 'key is not a string',
-                     key, fn: callee, args })
+                badArgs('key is not a string', {key})
               } else cb(undefined, [key, args[i + 1]])
             })),
         (err, xs) => {
           if (err) raise(env, err, cb)
           else cb(_.fromPairs(<any[]>xs))
         })
-    } else raise(env, {
-      err: 'NotCallable', why: 'cannot call non-closure, non-empty object',
-      callee, args
-    }, cb)
+    } else notCallable('cannot call non-closure, non-empty object')
   } else if (typeof callee === "number") {
-    if (args.length !== 1) raise(env, {
-      err: 'BadArgs', why: `index takes 1 argument, got ${args.length}`,
-      fn: callee, args
-    }, cb)
+    if (args.length !== 1) badArgs(`index takes 1 argument, got ${args.length}`)
     else getIndex(0, args, (err, receiver) => {
       if (isArray(receiver)) {
         let index = callee < 0 ? receiver.length + callee : callee
-        getIndex(index, receiver, (err, x) => {
-          if (err) raise(env, err, cb)
-          else cb(x)
-        })
-      } else raise(env, {
-        err: 'BadArgs', why: 'numeric index into non-array',
-        fn: callee, args: [receiver]
-      }, cb)
+        getIndex(index, receiver, (err, x) => err ? raise(env, err, cb) : cb(x))
+      } else badArgs('numeric index into non-array')
     })
   } else if (typeof(callee) === "string") {
-    if (args.length !== 1) raise(env, {
-      err: 'BadArgs', why: `index takes 1 argument, got ${args.length}`,
-      fn: callee, args
-    }, cb)
+    if (args.length !== 1) badArgs(`index takes 1 argument, got ${args.length}`)
     else getIndex(0, args, (err, receiver) => {
-      if (isObject(receiver)) getKey(callee, receiver, (err, x) => {
-        if (err) raise(env, err, cb)
-        else cb(x)
-      })
-      else raise(env, {
-        err: 'BadArgs', why: 'string index into non-object',
-        fn: callee, args: [receiver]
-      }, cb)
+      if (isObject(receiver)) {
+        getKey(callee, receiver, (err, x) => err ? raise(env, err, cb) : cb(x))
+      } else badArgs('string index into non-object')
     })
-  } else raise(env, {
-    err: 'NotCallable', why: 'not closure, number, string, [], or {}',
-    callee, args
-  }, cb)
+  } else notCallable('not closure, number, string, [], or {}')
 }
 
 export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, context: Jaspr = code): void {
-  function deferEval(code2: Jaspr | Deferred, inherit?: boolean): Deferred {
-    return env.defer({
+  function deferEval(code2: Jaspr | Deferred, inherit?: boolean): Jaspr | Deferred {
+    if (isLiteral(code2)) return code2
+    else return env.defer({
       action: Action.Eval, code: code2, inherit,
       fn: (env, cb) => waitFor(code2, c => evalExpr(env, scope, c, cb, code))
     })
   }
   if (typeof code === 'string' && code !== '') {
     if (code.startsWith(Names.prefix) && code !== Names.args) {
-      switch (code) {
-        case Names.signalHandler: return cb(Dynamics.signalHandler)
-        case Names.name: return cb(Dynamics.name)
-        case Names.module: return cb(Dynamics.module)
-        default:
           return raise(env, {
             err: 'NoBinding', why: 'no accessible binding for reserved name',
             name: code, context
           }, cb)
       }
-    }
     const variable = scope.value[code]
     if (variable === undefined) {
       return raise(env,
@@ -351,28 +396,32 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
         switch (fn) {
         case Names.if_:
           if (assertArgs(3)) {
-            deferEval(code[1]).await(b =>
-              deferEval(code[toBool(b) ? 2 : 3], true).await(cb))
+            waitFor(deferEval(code[1]), b =>
+              waitFor(deferEval(code[toBool(b) ? 2 : 3], true), cb))
           }
           break
         case Names.then:
           if (assertArgs(2)) {
-            deferEval(code[1]).await(() => deferEval(code[2], true).await(cb))
+            waitFor(deferEval(code[1]), () => waitFor(deferEval(code[2], true), cb))
           }
           break
         case Names.junction:
           env.defer({
             action: Action.Junction, code, fn: (env, cb) => {
-              const branches = code.slice(1).map((x, i) => {
-                const branch = deferEval(x)
-                branch.await(v => {
-                  for (let j = 0; j < branches.length; j++) {
-                    if (j !== i) branches[j].cancel()
-                  }
-                  cb(v)
+              const branches = code.slice(1).map(code => env.defer({
+                action: Action.Eval, code,
+                fn: (env, cb) => waitFor(code, c => evalExpr(env, scope, c, cb))
+              }))
+              let done = false
+              const resolve = (resolved: number) => (value: Jaspr) => {
+                if (done) return
+                else done = true
+                branches.forEach((branch, i) => {
+                  if (i !== resolved) branch.cancel()
                 })
-                return branch
-              })
+                cb(value)
+              }
+              branches.forEach((branch, i) => branch.await(resolve(i)))
             }
           }).await(cb)
           break
@@ -390,15 +439,15 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
               }, cb)
               else evalDefs(env, undefined, scope, defs, ((err, cScope) => {
                 if (err) raise(env, err, cb)
-                else cb(_.merge({
-                  [Names.closure]: cScope,
+                else env.getDynamic(env.nameVar, name => cb(_.assignIn({
+                  [env.closureName]: cScope,
                   [Names.code]: unexpandedMacros
                     ? env.defer({
                       action: Action.MacroExpand, code,
                       fn: (env, cb) => macroExpand(env, <Scope>cScope, code, cb)
                     }) : code,
-                  [magicSymbol]: closureMarker
-                }, fields))
+                  [magicSymbol]: {name}
+                }, fields)))
               }))
             })
           }
@@ -406,13 +455,13 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
         case Names.eval_:
           if (assertArgs(1)) {
             getIndex(1, code, (err, v) => 
-              deferEval(v).await(v => deferEval(v).await(cb)))
+              waitFor(deferEval(v), v => waitFor(deferEval(v), cb)))
           }
           break
         case Names.macroexpand:
           if (assertArgs(1)) {
             getIndex(1, code, (err, v) =>
-              deferEval(v).await(code => env.defer({
+              waitFor(deferEval(v), code => env.defer({
                 action: Action.MacroExpand, code,
                 fn: (env, cb) => macroExpand(env, scope, code, cb)
               }).await(cb)))
@@ -420,21 +469,20 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
           break
         case Names.contextGet:
           if (assertArgs(2)) {
-            getIndex(1, code, (err, contextName) =>
-              deferEval(code[2]).await(name => {
+            getIndex(1, code, (err, ctx) => getIndex(2, code, (err, name) => {
                 if (typeof name !== 'string') raise(env, {
-                  err: 'BadArgs', why: 'name must evaluate to a string',
-                  fn, args: [contextName, name]
+                err: 'BadArgs', why: 'name must be a string',
+                fn, args: [ctx, name]
                 }, cb)
-                else getKey('' + contextName, scope, (err, context) => {
+              else getKey('' + ctx, scope, (err, context) => {
                   if (err || !isObject(context)) raise(env, {
                     err: 'NoBinding', why: 'context does not exist in scope',
-                    context: '' + contextName
+                  context: '' + ctx
                   }, cb)
                   else getKey(name, context, (err, val) => {
                     if (err) raise(env, {
                       err: 'NoBinding', why: 'name not defined in context',
-                      context: '' + contextName, name
+                    context: '' + ctx, name
                     }, cb)
                     else cb(val)
                   })
@@ -444,7 +492,7 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
           break
         case Names.dynamicLet:
           if (assertArgs(3)) {
-            deferEval(code[1]).await((dyn: JasprDynamic) => {
+            waitFor(deferEval(code[1]), (dyn: JasprDynamic) => {
               env.defer({
                 action: Action.Eval, code: code[3],
                 dynamics: [[dyn, deferEval(code[2])]],
@@ -452,9 +500,6 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
               }).await(cb)
             })
           }
-          break
-        case Names.unhandledError:
-          deferEval(code[1]).await(v => env.unhandledError(v, cb))
           break
         case Names.syntaxQuote:
           raise(env, {
@@ -470,23 +515,7 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
           }, cb)
           break
         default:
-          if (builtins.hasOwnProperty(fn)) {
-            resolveArray(code.slice(1).map(x => deferEval(x)), args => {
-              try { builtins[fn](env, args, cb) } catch (ex) {
-                if (ex.name === 'AssertionError') {
-                  throw ex // Let test assertions pass through
-                } else if (ex instanceof Error) {
                   raise(env, {
-                    err: 'NativeError',
-                    why: `uncaught JavaScript exception in ${fn}`,
-                    name: ex.name,
-                    message: ex.message,
-                    stack: ex.stack || null
-                  }, cb)
-                } else raise(env, ex, cb)
-              }
-            })
-          } else raise(env, {
             err: 'NoPrimitive', why: 'no such special form', callee: fn, code
           }, cb)
         }
@@ -495,41 +524,51 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
       // all other calls: functions and indexes
       else {
         const elements = code.map(x => deferEval(x))
-        elements[0].await(efn => call(env, efn, elements.slice(1), cb))
+        waitFor(elements[0], efn => call(env, efn, elements.slice(1), cb))
       }
     })
   else if (isObject(code)) {
-    if (isClosure(code)) raise(env, {
+    if (isClosure(env, code)) raise(env, {
       err: 'EvalFailed', why: 'cannot eval a closure', code
     }, cb)
-    else cb(_.mapValues(code, x => deferEval(x)))
+    else cb(_.mapValues(code, x => deferEval(<any>x)))
   } else cb(code)
 }
 
 export function deferExpandEval(
   env: Env, scope: Scope | PromiseLike<Scope>, code: Jaspr | Deferred,
-  name?: string, module?: string
+  name?: string
 ): Deferred {
   const scopePromise = Promise.resolve(scope)
   const expanded = env.defer({
     action: Action.MacroExpand, code,
-    dynamics: [[Dynamics.name, name || null], [Dynamics.module, module || null]],
+    dynamics: name ? [[env.nameVar, name]] : [],
     fn: (env, cb) => scopePromise.then(
       scope => waitFor(code, c => macroExpand(env, scope, c, cb)),
       err => raise(env, err, cb))
   })
   return env.defer({
     action: Action.Eval, code: expanded,
-    dynamics: [[Dynamics.name, name || null], [Dynamics.module, module || null]],
+    dynamics: name ? [[env.nameVar, name]] : [],
     fn: (env, cb) => scopePromise.then(
       scope => expanded.await(c => evalExpr(env, scope, c, cb)),
       err => raise(env, err, cb))
   })
 }
 
+export interface Namespace {
+  $module: string | null,
+  $version: string | null
+}
+
+export function qualify(ns: Namespace, name: string): string {
+  if (ns.$module) return `${ns.$module}.${name}@${ns.$version || ''}`
+  else return name
+}
+
 export function evalDefs(
   env: Env,
-  module: string | null | undefined,
+  module: Namespace | null | undefined,
   evalScope: Scope,
   defs: JasprObject,
   cb: AsyncResultCallback<Scope, JasprError>
@@ -540,7 +579,7 @@ export function evalDefs(
     let names = name.split('.')
     if (names.length === 2) {
       if (topLevelPrefixes.has(names[0])) {
-        if (module === undefined && (names[0] === 'doc' || names[0] === 'test')) return cb({
+        if (!module && (names[0] === 'doc' || names[0] === 'test')) return cb({
           err: 'BadName', why: 'prefix only allowed at module toplevel',
           prefix: names[0], name,
           help: 'Documentation and tests cannot be defined using “let”.'
@@ -551,20 +590,21 @@ export function evalDefs(
         })
         names = names.slice(1)
       }
-      else return cb({
+      else return cb(<any>_.assign({
         err: 'BadName', why: 'not a legal top-level prefix',
-        prefix: names[0], name, module: module || null,
+        prefix: names[0], name,
         help: `Legal top-level prefixes are: ${_.join([...topLevelPrefixes])}`
-      })
+      }, module ? {module: module.$module, version: module.$version} : {}))
     }
-    if (names.length === 0 || !_.every(names, isLegalName)) return cb({
-      err: 'BadName', why: 'not a legal identifier', name,  module: module || null,
+    if (names.length === 0 || !_.every(names, isLegalName)) return cb(
+      <any>_.assign({
+        err: 'BadName', why: 'not a legal identifier', name,
       help: `
         Names may not contain reserved characters (whitespace or anything that
         is part of Jaspr syntax); may not have leading, trailing, or
         consecutive “.”; may not have leading “$”; and may not be empty.
       `.trim().replace(/\s+/gm, ' ')
-    })
+      }, module ? {module: module.$module, version: module.$version} : {}))
   }
 
   function splitName(k: string): [string, string] {
@@ -586,22 +626,29 @@ export function evalDefs(
     test: _.create(evalScope.test, scope.test),
     qualified: _.create(evalScope.qualified, scope.qualified),
   })))
-  scope = _.merge({value: {}, macro: {}, check: {}, doc: {}, test: {},
-      qualified: module
-        ? _(defs).omitBy(k => _.startsWith(k, Names.prefix))
-                 .mapKeys((v: Jaspr, k: string) => splitName(k)[1])
-                 .mapValues((v: Jaspr, k: string) => module + '.' + k)
-                 .value()
-        : {}},
-    _.mapValues(defsByPrefix, (ks, prefix) => {
+  scope = _.assignIn(
+    {value: {}, macro: {}, check: {}, doc: {}, test: {},
+     qualified: _(defsByPrefix).omit('test').values().flatten()
+        .map((k: string) => splitName(k)[1]).uniq()
+        .flatMap(module && module.$module
+                 ? k => [[k, qualify(module, k)],
+                         [`${module.$module}.${k}`, qualify(module, k)]]
+                 : k => [[k, k]])
+        .fromPairs().value()
+    }, _.mapValues(defsByPrefix, (ks, prefix) => {
       const mapFn: (k: string) => any =
         (prefix === 'doc' || prefix === 'test') ? k => defs[k]
-        : k => deferExpandEval(env, out, defs[k], splitName(k)[1], module || undefined)
+        : k => deferExpandEval(env, out, defs[k],
+            module ? qualify(module, splitName(k)[1]) : splitName(k)[1])
       return _.fromPairs(
-        (module && prefix !== 'test')
+        (module && module.$module && prefix !== 'test')
         ? _.flatMap(ks, k => {
             const name = splitName(k)[1], value = mapFn(k)
-            return [[name, value], [module + '.' + name, value]]
+            return [
+              [name, value],
+              [`${module.$module}.${name}`, value],
+              [qualify(module, name), value]
+            ]
           })
         : ks.map(k => [splitName(k)[1], mapFn(k)]))
     }))
