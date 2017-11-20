@@ -48,12 +48,11 @@ const constants: JasprObject = {
 }
 
 function wrap(fn: (x: any) => Jaspr): Fn {
-  return function*(x) { return fn(yield x) }
+  return function(x) { return fn(x) }
 }
 
 const functions: {[name: string]: Fn} = {
-  typeOf: function* typeOf(x) {
-    const it = yield x
+  typeOf(it) {
     if (it === null) return 'null'
     switch (typeof it) {
       case 'boolean': return 'boolean'
@@ -62,29 +61,28 @@ const functions: {[name: string]: Fn} = {
       default: return isArray(it) ? 'array' : 'object'
     }
   },
-  'gensym!': function* gensym(name?) {
-    return this.gensym(name ? '' + (yield name) : undefined)
+  'gensym!'(name?) {
+    return this.gensym(name ? ''+name : undefined)
   },
-  'print!': function* print(str) {
-    console.log(yield str)
+  'print!'(str) {
+    console.log(str)
     return null
   },
-  [Names.apply]: function* apply(fn, args) {
+  [Names.apply](fn, args) {
     const d = new Deferred()
-    call(this, yield fn, yield args, d.resolve.bind(d))
+    call(this, fn, <any[]>args, d.resolve.bind(d))
     return d
   },
-  sleep: function* sleep(ms) {
+  sleep(ms) {
     const d = new Deferred()
-    setTimeout(() => d.resolve(null), yield ms)
+    setTimeout(() => d.resolve(null), ms)
     return d
   },
   bool: wrap(toBool),
-  'is?': function* is(a, b) { return (yield a) === (yield b) },
-  'magic?': function* magic(it) { return isMagic(yield it) },
-  [Names.assertEquals]: function* assertEquals(lhs, rhs) {
+  'is?'(a, b) { return a === b },
+  'magic?'(it) { return isMagic(it) },
+  [Names.assertEquals](a, b) {
     const d = new Deferred()
-    const a = yield lhs, b = yield rhs
     resolveFully(a, (err, a) => resolveFully(b, (err, b) => {
       try {
         if (isMagic(a) || isMagic(b)) return d.resolve(a === b)
@@ -99,58 +97,56 @@ const functions: {[name: string]: Fn} = {
   },
 
   // channels
-  'chanMake!': function* chanMake() { return Chan.make() },
-  'chan?': function* chan(it) { return Chan.isChan(yield it) },
-  'chanSend!': function* chanSend(_msg, _chan) {
-    const msg = yield _msg, chan = yield _chan
+  'chanMake!'() { return Chan.make() },
+  'chan?'(it) { return Chan.isChan(it) },
+  'chanSend!'(msg, chan) {
     return this.defer({
       action: Action.Send, inherit: true,
-      fn: (env, cb) => (<Chan>chan[magicSymbol]).send(msg, cb)
+      fn: (env, cb) => (<Chan>(<any>chan)[magicSymbol]).send(msg, cb)
     })
   },
-  'chanRecv!': function* chanRecv(_chan) {
-    const chan = yield _chan
+  'chanRecv!'(chan) {
     return this.defer({
       action: Action.Recv, inherit: true,
-      fn: (env, cb) => (<Chan>chan[magicSymbol]).recv((err, val) => {
+      fn: (env, cb) => (<Chan>(<any>chan)[magicSymbol]).recv((err, val) => {
         if (err != null) raise(this, err, cb)
         else cb(<Jaspr>val)
       })
     })
   },
-  'chanClose!': function* chanClose(chan) {
-    return (<Chan>(yield chan)[magicSymbol]).close()
+  'chanClose!'(chan) {
+    return (<Chan>(<any>chan)[magicSymbol]).close()
   },
-  'chanClosed?': function* chanClosed(chan) {
-    return (<Chan>(yield chan)[magicSymbol]).closed
+  'chanClosed?'(chan) {
+    return (<Chan>(<any>chan)[magicSymbol]).closed
   },
 
   // dynamic variables
-  'dynamicMake!': function* dynamicMake(def) { return makeDynamic(yield def) },
-  'dynamic?': function* dynamic(it) { return isDynamic(yield it) },
-  dynamicGet: function* dynamicGet(dyn) {
+  'dynamicMake!'(def) { return makeDynamic(def) },
+  'dynamic?'(it) { return isDynamic(it) },
+  dynamicGet(dyn) {
     const d = new Deferred()
-    this.getDynamic(yield dyn, d.resolve.bind(d))
+    this.getDynamic(<any>dyn, d.resolve.bind(d))
     return d
   },
 
   // simple math
-  '<': function* less(a, b) { return +(yield a) < +(yield b) },
-  '<=': function* lessEq(a, b) { return +(yield a) <= +(yield b) },
-  add: function* add(a, b) { return +(yield a) + +(yield b) },
-  subtract: function* subtract(a, b) { return +(yield a) - +(yield b) },
-  multiply: function* multiply(a, b) { return +(yield a) * +(yield b) },
-  divide: function* divide(a, b) { return +(yield a) / +(yield b) },
-  remainder: function* remainder(a, b) { return +(yield a) % +(yield b) },
-  modulus: function* modulus(a, b) {
-    const x = +(yield a), y = +(yield b)
+  '<'(a, b) { return +(<any>a) < +(<any>b) },
+  '<='(a, b) { return +(<any>a) <= +(<any>b) },
+  add(a, b) { return +(<any>a) + +(<any>b) },
+  subtract(a, b) { return +(<any>a) - +(<any>b) },
+  multiply(a, b) { return +(<any>a) * +(<any>b) },
+  divide(a, b) { return +(<any>a) / +(<any>b) },
+  remainder(a, b) { return +(<any>a) % +(<any>b) },
+  modulus(a, b) {
+    const x = +(<any>a), y = +(<any>b)
     return (Math.abs(x) * Math.sign(y)) % y
   },
-  negate: function* negate(a) { return -(yield a) },
+  negate(a) { return -(<any>a) },
 
   // advanced math
-  'random!': function* random() { return Math.random() },
-  pow: function* pow(a, b) { return Math.pow(yield a, yield b) },
+  'random!'() { return Math.random() },
+  pow(a, b) { return Math.pow(<any>a, <any>b) },
   sqrt: wrap(Math.sqrt),
   cbrt: wrap(Math.cbrt),
   log: wrap(Math.log),
@@ -172,110 +168,110 @@ const functions: {[name: string]: Fn} = {
   asinh: wrap(Math.asinh),
   acosh: wrap(Math.acosh),
   atanh: wrap(Math.atanh),
-  atan2: function* atan2(a, b) { return Math.atan2(yield a, yield b) },
-  hypot: function* hypot(a, b) { return Math.hypot(yield a, yield b) },
+  atan2(a, b) { return Math.atan2(<any>a, <any>b) },
+  hypot(a, b) { return Math.hypot(<any>a, <any>b) },
   'finite?': wrap(isFinite),
   'NaN?': wrap(isNaN),
 
   // string
-  toString: function*(it: Jaspr | Deferred) {
+  toString(it: Jaspr | Deferred) {
     const d = new Deferred()
-    resolveFully(yield it, (err, it) => d.resolve(toString(it, true)))
+    resolveFully(<any>it, (err, it) => d.resolve(toString(it, true)))
     return d
   },
-  toJSON: function* toJSON(it) { 
+  toJSON(it) { 
     const d = new Deferred()
-    resolveFully(yield it, (err, it) => {
+    resolveFully(<any>it, (err, it) => {
       if (err) raise(this, err, d.resolve.bind(d))
       else d.resolve(JSON.stringify(it))
     }, true)
     return it
   },
-  fromJSON: function* fromJSON(a) { return JSON.parse(''+(yield a)) },
-  stringCompare: function* stringCompare(x, y) {
-    const a = ''+(yield x), b = ''+(yield y)
+  fromJSON(a) { return JSON.parse(''+(<any>a)) },
+  stringCompare(x, y) {
+    const a = ''+(<any>x), b = ''+(<any>y)
     if (a < b) return -1
     else if (a > b) return 1
     else return 0
   },
-  stringConcat: function* stringConcat(a, b) { return ''+(yield a) + (yield b) },
-  stringReplace: function* stringReplace(orig, repl, str) {
+  stringConcat(a, b) { return ''+(<any>a) + (<any>b) },
+  stringReplace(orig, repl, str) {
     return String.prototype.replace.call(
-      ''+(yield str), ''+(yield orig), ''+(yield repl))
+      ''+(<any>str), ''+(<any>orig), ''+(<any>repl))
   },
-  stringNativeIndexOf: function* stringNativeIndexOf(needle, haystack, start) {
+  stringNativeIndexOf(needle, haystack, start) {
     return String.prototype.indexOf.call(
-      ''+(yield needle), ''+(yield haystack), (yield start)|0)
+      ''+(<any>needle), ''+(<any>haystack), (<any>start)|0)
   },
-  stringNativeLastIndexOf: function* stringNativeLastIndexOf(needle, haystack, start) {
+  stringNativeLastIndexOf(needle, haystack, start) {
     return String.prototype.lastIndexOf.call(
-      ''+(yield needle), ''+(yield haystack), (yield start)|0)
+      ''+(<any>needle), ''+(<any>haystack), (<any>start)|0)
   },
-  stringNativeLength: function* stringNativeLength(str) { return (''+(yield str)).length },
-  stringUnicodeLength: function* stringUnicodeLength(str) { return unicodeLength(str) },
-  stringNativeSlice: function* stringNativeSlice(start, end, str) { 
+  stringNativeLength(str) { return (''+(<any>str)).length },
+  stringUnicodeLength(str) { return unicodeLength(str) },
+  stringNativeSlice(start, end, str) { 
     return String.prototype.slice.call(
-      ''+(yield str), (yield start)|0, (yield end)|0)
+      ''+(<any>str), (<any>start)|0, (<any>end)|0)
   },
-  stringUnicodeSlice: function* stringUnicodeSlice(start, end, str) { 
+  stringUnicodeSlice(start, end, str) { 
     let out = '', index = 0
-    const st = (yield start)|0, ed = (yield end)|0
-    for (let c of ''+(yield str)) {
+    const st = (<any>start)|0, ed = (<any>end)|0
+    for (let c of ''+(<any>str)) {
       if (index >= ed) break
       else if (index >= st) out += c
       else index++
     }
     return out
   },
-  stringNativeCharAt: function* stringNativeCharAt(index, str) {
+  stringNativeCharAt(index, str) {
     return String.prototype.charAt.call(
-      ''+(yield str), (yield index)|0)
+      ''+(<any>str), (<any>index)|0)
   },
-  stringUnicodeCharAt: function* stringUnicodeCharAt(index, str) {
-    let i = (yield index)|0
-    for (let c of ''+(yield str)) if (i-- <= 0) return c
+  stringUnicodeCharAt(index, str) {
+    let i = (<any>index)|0
+    for (let c of ''+(<any>str)) if (i-- <= 0) return c
     return ''
   },
-  stringUnicodeCodePointAt: function* stringUnicodeCodePointAt(index, str) {
-    let i = (yield index)|0
-    for (let c of ''+(yield str)) {
+  stringUnicodeCodePointAt(index, str) {
+    let i = (<any>index)|0
+    for (let c of ''+(<any>str)) {
       if (i-- <= 0) return c.codePointAt(0)
     }
     return null
   },
-  stringNativeChars: function* stringNativeChars(inStr) {
-    let str = ''+(yield inStr), out = new Array<string>(str.length)
+  stringNativeChars(inStr) {
+    let str = ''+(<any>inStr), out = new Array<string>(str.length)
     for (let i = 0; i < out.length; i++) out[i] = str.charAt(i)
     return out
   },
-  stringUnicodeChars: function* stringUnicodeChars(str) { return [...''+(yield str)] },
-  stringUnicodeCodePoints: function* stringUnicodeCodePoints(str) {
-    return [...''+(yield str)].map(c => c.codePointAt(0))
+  stringUnicodeChars(str) { return [...''+(<any>str)] },
+  stringUnicodeCodePoints(str) {
+    return [...''+(<any>str)].map(c => c.codePointAt(0))
   },
-  stringNativeFromChars: function* stringNativeFromChars(chars) {
+  stringNativeFromChars(chars) {
     return Array.prototype.reduce.call(
-      yield chars,
+      <any>chars,
       (a: string, b: string) => a + b, '')
   },
-  stringUnicodeFromCodePoints: function* stringUnicodeFromCodePoints(codePoints) {
-    return String.fromCodePoint(...yield codePoints)
+  stringUnicodeFromCodePoints(codePoints) {
+    return String.fromCodePoint(...<any>codePoints)
   },
-  stringNFC: function* stringNFC(str) {
-    return String.prototype.normalize.call(''+(yield str), 'NFC')
+  stringNFC(str) {
+    return String.prototype.normalize.call(''+(<any>str), 'NFC')
   },
-  stringNFD: function* stringNFD(str) {
-    return String.prototype.normalize.call(''+(yield str), 'NFD')
+  stringNFD(str) {
+    return String.prototype.normalize.call(''+(<any>str), 'NFD')
   },
-  stringNFKC: function* stringNFKC(str) {
-    return String.prototype.normalize.call(''+(yield str), 'NFKC')
+  stringNFKC(str) {
+    return String.prototype.normalize.call(''+(<any>str), 'NFKC')
   },
-  stringNFKD: function* stringNFKD(str) {
-    return String.prototype.normalize.call(''+(yield str), 'NFKD')
+  stringNFKD(str) {
+    return String.prototype.normalize.call(''+(<any>str), 'NFKD')
   },
 
   // arrays
-  arrayMake: function* arrayMake(fn, len) {
-    const l = (yield len)|0, f = yield fn
+  arrayMake(fn, len) {
+    const l = (<any>len)|0, f = <any>fn
     const out = new Array<Deferred>(l)
     for (let i = 0; i < l; i++) {
       const ii = i
@@ -286,21 +282,21 @@ const functions: {[name: string]: Fn} = {
     }
     return out
   },
-  [Names.arrayConcat]: function* arrayConcat(...args) {
+  [Names.arrayConcat](...args) {
     let out: Jaspr[] = []
-    for (let next of args) out = out.concat(yield next)
+    for (let next of args) out = out.concat(<any>next)
     return out
   },
-  arrayLength: function* arrayLength(a) { return (yield a).length },
-  arraySlice: function* arraySlice(start, end, a) {
+  arrayLength(a) { return (<any>a).length },
+  arraySlice(start, end, a) {
     return Array.prototype.slice.call(
-      yield a, (yield start)|0, (yield end)|0)
+      <any>a, (<any>start)|0, (<any>end)|0)
   },
 
   // objects
-  objectMake: function* objectMake(fn, keys) {
-    const out = Object.create(null), f = yield fn
-    for (let k of <string[]>(yield keys)) {
+  objectMake(fn, keys) {
+    const out = Object.create(null), f = <any>fn
+    for (let k of <string[]>(<any>keys)) {
       const kk = k
       out[k] = this.defer({
         action: Action.Eval, code: [f, kk],
@@ -309,23 +305,23 @@ const functions: {[name: string]: Fn} = {
     }
     return out
   },
-  objectHas: function* objectHas(key, obj) {
-    return has(yield obj, ''+(yield key))
+  objectHas(key, obj) {
+    return has(<any>obj, ''+(<any>key))
   },
-  objectInsert: function* objectInsert(key, val, obj) {
-    const out = Object.create(null), o = yield obj
+  objectInsert(key, val, obj) {
+    const out = Object.create(null), o = <any>obj
     for (let oldKey in o) out[oldKey] = o[oldKey]
-    out[''+(yield key)] = yield val
+    out[''+(<any>key)] = <any>val
     return out
   },
-  objectDelete: function* objectDelete(key, obj) {
-    const out = Object.create(null), k = ''+(yield key), o = yield obj
+  objectDelete(key, obj) {
+    const out = Object.create(null), k = ''+(<any>key), o = <any>obj
     for (let oldKey in o) if (oldKey !== k) out[oldKey] = o[oldKey]
     return out
   },
-  objectKeys: function* objectKeys(obj) { return Object.keys(yield obj) },
-  objectValues: function* objectValues(obj) {
-    const o = yield obj
+  objectKeys(obj) { return Object.keys(<any>obj) },
+  objectValues(obj) {
+    const o = <any>obj
     return Object.keys(o).map(k => o[k])
   }
 }
@@ -363,9 +359,9 @@ export default function JasprPrimitive(env: Env): Module {
       name: env.nameVar
     }).value()
   const macro = _.mapValues(macros, name =>
-    new NativeFn(function*(...args) {
-      let code = [name]
-      for (let arg of args) code.push(yield arg)
+    new NativeFn(function(...args) {
+      let code: Jaspr[] = [name]
+      for (let arg of args) code.push(arg)
       return code
     }).toClosure(env))
   ;[value, macro].forEach(ctx => _.assignIn(ctx,

@@ -26,7 +26,7 @@ function closure(env: Env, code: Jaspr, scope: JasprObject = {}): JasprObject {
   }
 }
 const add1 = (env: Env) => ({
-  add1: new NativeFn(function*(n) { return 1 + (yield n) }).toClosure(env)
+  add1: new NativeFn(function(n) { return 1 + (+<any>n) }).toClosure(env)
 })
 const macroAdd1 = (env: Env) =>
   ({macroAdd1: closure(env, [[], ['', 'add1'], [0, Names.args]])})
@@ -148,9 +148,9 @@ describe('eval', () => {
         }))
       }))
     it('$dynamicLet', withEnv((env, should) => {
-      const scope = values({dynamicGet: new NativeFn(function* dynamicGet(dyn) {
+      const scope = values({dynamicGet: new NativeFn(function dynamicGet(dyn) {
         const d = new Deferred()
-        this.getDynamic(yield dyn, d.resolve.bind(d))
+        this.getDynamic(<any>dyn, d.resolve.bind(d))
         return d
       }).toClosure(env)})
       evalExpr(env, scope, ['dynamicGet', ['', dyn]], should.equal(false))

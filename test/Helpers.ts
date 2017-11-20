@@ -71,9 +71,8 @@ export class TestCase implements Should<Callback> {
 
   raise(errType: Err, fn: (env: Env, cb: Callback) => void): void {
     const resolvers = this.pushPromise()
-    const handler = new NativeFn(function*(signal) {
+    const handler = new NativeFn(function(err) {
       const {resolve, reject} = resolvers()
-      const err = yield signal
       try {
         expect(err).to.be.an('object')
         expect(err).to.have.property('err').equal(errType, 'wrong error type')

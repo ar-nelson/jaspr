@@ -59,8 +59,8 @@ describe('the standard library', () => {
           if (!env) return reject('env is null')
           const fiber = env.defer({
             dynamics: [[env.signalHandlerVar,
-              new NativeFn(function* errorHandler(err) {
-                reject(new AssertionError({message: prettyPrint(yield err, false)}))
+              new NativeFn(function errorHandler(err) {
+                reject(new AssertionError({message: prettyPrint(err, false)}))
                 fiber.cancel()
                 return null
               }).toClosure(env)]],

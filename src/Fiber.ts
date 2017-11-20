@@ -156,9 +156,9 @@ export class RootFiber extends AbstractFiber {
   readonly testFailureHandler: (err: Error) => void
   readonly closureName = this.gensym('closure')
   readonly signalHandlerVar = makeDynamic(
-    new NativeFn(function* rootErrorHandler(err) {
+    new NativeFn(function rootErrorHandler(err) {
       const d = new Deferred()
-      this.unhandledError(yield err, x => d.resolve(x))
+      this.unhandledError(err, x => d.resolve(x))
       return d
     }).toClosure(this))
   readonly nameVar = makeDynamic(null)
