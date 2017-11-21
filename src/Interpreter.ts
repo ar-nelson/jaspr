@@ -42,29 +42,35 @@ export function isClosure(env: Env, it: Jaspr): it is JasprObject {
 }
 
 export interface Env {
-  defer(options: DeferOptions): Deferred
+  defer(
+    fn: (env: Env, cb: Callback) => void,
+    props?: () => DeferProperties,
+    inherit?: boolean,
+    dynamics?: [JasprDynamic, Jaspr | Deferred][]
+  ): Deferred
+  junction(
+    branches: ((env: Env, cb: Callback) => void)[],
+    props?: () => DeferProperties,
+    inherit?: boolean
+  ): Deferred
   unhandledError(err: Jaspr, cb: Callback): void
   getDynamic(dyn: JasprDynamic, cb: Callback): void
-  testFailure(err: Error): void
+  onCancel(fn: () => void): void
   gensym(prefix?: string): string
   closureName: string
   signalHandlerVar: JasprDynamic
   nameVar: JasprDynamic
 }
 
-export type DeferOptions = {
-  fn: (env: Env, cb: Callback) => void
-  action?: Action
+export interface DeferProperties {
+  action: Action
   code?: Jaspr | Deferred
   name?: string
-  inherit?: boolean
-  junction?: boolean
-  dynamics?: [JasprDynamic, Jaspr | Deferred][]
 }
 
-export enum Action {
-  Eval, MacroExpand, Check, Junction, Send, Recv, External
-}
+export type Action =
+  'root' | 'eval' | 'macroexpand' | 'check' | 'junction' | 'send' | 'recv' |
+  'apply' | 'external' 
 
 export function isLegalName(name: string) {
   return name !== 'null' && name !== 'true' && name !== 'false' &&
@@ -84,10 +90,9 @@ export function mergeScopes(env: Env, ...scopes: Scope[]): Scope {
       if (r === undefined || name.startsWith('$')) return l
       if (l === undefined) return r
       if (l instanceof Deferred || r instanceof Deferred) {
-        const d = new Deferred()
-        waitFor(l, l => waitFor(r, r => d.resolve(
-          isObject(l) && isObject(r) ? _.assignIn({}, l, r) : l)))
-        return d
+        return env.defer((env, cb) =>
+          waitFor(l, l => waitFor(r, r => cb(
+            isObject(l) && isObject(r) ? _.assignIn({}, l, r) : l))))
       } else {
         return isObject(l) && isObject(r) ? _.assignIn({}, l, r) : l
       }
@@ -108,13 +113,13 @@ function callClosure(
       else {
         const newScope: Scope =
           _.create(scope, {value: _.create(scope.value, {[Names.args]: args})})
-        env.defer({
-          action: Action.Eval, code, inherit,
-          name: magic ? (magic.name || undefined) : undefined,
-          fn: (env, cb) => evalExpr(env, newScope, code, cb)
-        }).await(cb)
+        env.defer(
+          (env, cb) => evalExpr(env, newScope, code, cb),
+          () => ({action: 'eval', code,
+                  name: magic ? (magic.name || undefined) : undefined}),
+          inherit).await(cb)
       }
-      })
+    })
 }
 
 export function raise(env: Env, error: JasprError, cb: Callback): void {
@@ -143,11 +148,10 @@ export function macroExpandTop(env: Env, scope: Scope, code: Jaspr, cb: Callback
           getIndex(1, code, (err, x) =>
             syntaxQuote(x, scope.qualified, gensyms, (err, y) => {
             if (err) raise(env, err, cb)
-            else env.defer({
-              action: Action.MacroExpand,
-              code: y,
-              fn: (env, cb) => macroExpandTop(env, scope, <Jaspr>y, cb)
-            }).await(cb)
+            else env.defer(
+              (env, cb) => macroExpandTop(env, scope, <Jaspr>y, cb),
+              () => ({action: 'macroexpand', code: y})
+            ).await(cb)
           }))
         } else raise(env, {
           err: 'BadArgs',
@@ -157,11 +161,10 @@ export function macroExpandTop(env: Env, scope: Scope, code: Jaspr, cb: Callback
       } else if (typeof fn === 'string' && scope.macro[fn] !== undefined) {
         getKey(fn, scope.macro, (err, macro) => {
           const args = code.slice(1)
-          call(env, macro, args, expanded => env.defer({
-            action: Action.MacroExpand,
-            code: expanded,
-            fn: (env, cb) => macroExpandTop(env, scope, expanded, cb)
-          }).await(cb))
+          call(env, macro, args, expanded => env.defer(
+            (env, cb) => macroExpandTop(env, scope, expanded, cb),
+            () => ({action: 'macroexpand', code: expanded})
+          ).await(cb))
         })
       } else cb(code)
     })
@@ -175,10 +178,9 @@ function isLiteral(code: Jaspr | Deferred) {
 export function macroExpand(env: Env, scope: Scope, code: Jaspr, cb: Callback): void {
   function deferExpand(code: Jaspr | Deferred, k: number | string): Jaspr | Deferred {
     if (isLiteral(code) || typeof code === "string") return code
-    else return env.defer({
-      action: Action.MacroExpand, code,// inherit: true,
-      fn: (env, cb) => waitFor(code, c => macroExpand(env, scope, c, cb))
-    })
+    else return env.defer(
+      (env, cb) => waitFor(code, c => macroExpand(env, scope, c, cb)),
+      () => ({action: 'macroexpand', code}))
   }
   (cb => {
     if (isArray(code) && code.length > 0 &&
@@ -205,11 +207,10 @@ export function macroExpand(env: Env, scope: Scope, code: Jaspr, cb: Callback): 
               out[<any>unexpandedSymbol] = true
               cb(out)
             } else cb([Names.closure,
-              _.mapValues(defs, (code, name) => env.defer({
-                action: Action.MacroExpand, code, inherit: true,
-                dynamics: [[env.nameVar, name]],
-                fn: (env, cb) => waitFor(code, c => macroExpand(env, scope, c, cb))
-              })),
+              _.mapValues(defs, (code, name) => env.defer(
+                (env, cb) => waitFor(code, c => macroExpand(env, scope, c, cb)),
+                () => ({action: 'macroexpand', code}),
+                true, [[env.nameVar, name]])),
               deferExpand(code[2], 2),
               _.mapValues(fields, deferExpand)
             ])
@@ -354,10 +355,10 @@ export function call(
 export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, context: Jaspr = code): void {
   function deferEval(code2: Jaspr | Deferred, inherit?: boolean): Jaspr | Deferred {
     if (isLiteral(code2)) return code2
-    else return env.defer({
-      action: Action.Eval, code: code2, inherit,
-      fn: (env, cb) => waitFor(code2, c => evalExpr(env, scope, c, cb, code))
-    })
+    else return env.defer(
+      (env, cb) => waitFor(code2, c => evalExpr(env, scope, c, cb, code)),
+      () => ({action: 'eval', code: code2}),
+      inherit)
   }
   if (typeof code === 'string' && code !== '') {
     if (code.startsWith(Names.prefix) && code !== Names.args) {
@@ -406,24 +407,11 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
           }
           break
         case Names.junction:
-          env.defer({
-            action: Action.Junction, code, fn: (env, cb) => {
-              const branches = code.slice(1).map(code => env.defer({
-                action: Action.Eval, code,
-                fn: (env, cb) => waitFor(code, c => evalExpr(env, scope, c, cb))
-              }))
-              let done = false
-              const resolve = (resolved: number) => (value: Jaspr) => {
-                if (done) return
-                else done = true
-                branches.forEach((branch, i) => {
-                  if (i !== resolved) branch.cancel()
-                })
-                cb(value)
-              }
-              branches.forEach((branch, i) => branch.await(resolve(i)))
-            }
-          }).await(cb)
+          env.junction(
+            code.slice(1).map(code => (env: Env, cb: Callback) =>
+              waitFor(code, c => evalExpr(env, scope, c, cb))),
+            () => ({action: 'junction', code}),
+            true).await(cb)
           break
         case Names.closure:
           if (assertArgs(3)) {
@@ -442,10 +430,9 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
                 else env.getDynamic(env.nameVar, name => cb(_.assignIn({
                   [env.closureName]: cScope,
                   [Names.code]: unexpandedMacros
-                    ? env.defer({
-                      action: Action.MacroExpand, code,
-                      fn: (env, cb) => macroExpand(env, <Scope>cScope, code, cb)
-                    }) : code,
+                    ? env.defer(
+                        (env, cb) => macroExpand(env, <Scope>cScope, code, cb),
+                        () => ({action: 'macroexpand', code})) : code,
                   [magicSymbol]: {name}
                 }, fields)))
               }))
@@ -461,10 +448,10 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
         case Names.macroexpand:
           if (assertArgs(1)) {
             getIndex(1, code, (err, v) =>
-              waitFor(deferEval(v), code => env.defer({
-                action: Action.MacroExpand, code,
-                fn: (env, cb) => macroExpand(env, scope, code, cb)
-              }).await(cb)))
+              waitFor(deferEval(v), code => env.defer(
+                (env, cb) => macroExpand(env, scope, code, cb),
+                () => ({action: 'macroexpand', code})
+              ).await(cb)))
           }
           break
         case Names.contextGet:
@@ -493,11 +480,11 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
         case Names.dynamicLet:
           if (assertArgs(3)) {
             waitFor(deferEval(code[1]), (dyn: JasprDynamic) => {
-              env.defer({
-                action: Action.Eval, code: code[3],
-                dynamics: [[dyn, deferEval(code[2])]],
-                fn: (env, cb) => waitFor(code[3], c => evalExpr(env, scope, c, cb, code))
-              }).await(cb)
+              env.defer(
+                (env, cb) => waitFor(code[3], c => evalExpr(env, scope, c, cb, code)),
+                () => ({action: 'eval', code: code[3]}),
+                false, [[dyn, deferEval(code[2])]]
+              ).await(cb)
             })
           }
           break
@@ -515,7 +502,7 @@ export function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, cont
           }, cb)
           break
         default:
-                  raise(env, {
+          raise(env, {
             err: 'NoPrimitive', why: 'no such special form', callee: fn, code
           }, cb)
         }
@@ -540,20 +527,18 @@ export function deferExpandEval(
   name?: string
 ): Deferred {
   const scopePromise = Promise.resolve(scope)
-  const expanded = env.defer({
-    action: Action.MacroExpand, code,
-    dynamics: name ? [[env.nameVar, name]] : [],
-    fn: (env, cb) => scopePromise.then(
+  const expanded = env.defer(
+    (env, cb) => scopePromise.then(
       scope => waitFor(code, c => macroExpand(env, scope, c, cb)),
-      err => raise(env, err, cb))
-  })
-  return env.defer({
-    action: Action.Eval, code: expanded,
-    dynamics: name ? [[env.nameVar, name]] : [],
-    fn: (env, cb) => scopePromise.then(
+      err => raise(env, err, cb)),
+    () => ({action: 'macroexpand', code, name}),
+    false, name ? [[env.nameVar, name]] : [])
+  return env.defer(
+    (env, cb) => scopePromise.then(
       scope => expanded.await(c => evalExpr(env, scope, c, cb)),
-      err => raise(env, err, cb))
-  })
+      err => raise(env, err, cb)),
+    () => ({action: 'eval', code: expanded, name}),
+    false, name ? [[env.nameVar, name]] : [])
 }
 
 export interface Namespace {

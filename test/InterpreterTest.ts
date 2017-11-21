@@ -149,9 +149,7 @@ describe('eval', () => {
       }))
     it('$dynamicLet', withEnv((env, should) => {
       const scope = values({dynamicGet: new NativeFn(function dynamicGet(dyn) {
-        const d = new Deferred()
-        this.getDynamic(<any>dyn, d.resolve.bind(d))
-        return d
+        return this.defer((env, cb) => this.getDynamic(<any>dyn, cb))
       }).toClosure(env)})
       evalExpr(env, scope, ['dynamicGet', ['', dyn]], should.equal(false))
       evalExpr(env, scope,

@@ -1,5 +1,6 @@
 import {Jaspr, JasprObject, JasprError, magicSymbol, isObject} from './Jaspr'
 import * as Names from './ReservedNames'
+import {remove} from 'lodash'
 
 class Chan {
   sendQueue: [Jaspr, (sent: boolean) => void][] = []
@@ -11,27 +12,33 @@ class Chan {
     this.magicObject = magicObject
   }
 
-  send(msg: Jaspr, cb: (sent: boolean) => void): void {
-    if (this.closed) return cb(false)
+  send(msg: Jaspr, cb: (sent: boolean) => void): (() => void) | null {
+    if (this.closed) { cb(false); return null }
     if (this.recvQueue.length > 0) {
       (<any>this.recvQueue.shift())(undefined, msg)
       cb(true)
+      return null
     } else {
-      this.sendQueue.push([msg, cb])
+      const entry: [Jaspr, (sent: boolean) => void] = [msg, cb]
+      this.sendQueue.push(entry)
+      return () => {remove(this.sendQueue, x => x === entry)}
     }
   }
 
-  recv(cb: (err?: JasprError, val?: Jaspr) => void): void {
-    if (this.closed) return cb({
-      err: 'ChanClosed', why: 'recv on closed channel',
-      chan: this.magicObject
-    })
+  recv(cb: (err?: JasprError, val?: Jaspr) => void): (() => void) | null {
+    if (this.closed) {
+      cb({ err: 'ChanClosed', why: 'recv on closed channel',
+           chan: this.magicObject })
+      return null
+    }
     if (this.sendQueue.length > 0) {
       const [msg, sendCb] = <any>this.sendQueue.shift()
       cb(undefined, msg)
       sendCb(true)
+      return null
     } else {
       this.recvQueue.push(cb)
+      return () => {remove(this.recvQueue, x => x === cb)}
     }
   }
 

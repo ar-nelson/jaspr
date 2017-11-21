@@ -3,7 +3,7 @@ import * as readline from 'readline'
 import {waterfall} from 'async'
 
 import {Jaspr, JasprError, Json, Callback, resolveFully} from './Jaspr'
-import {Scope, emptyScope, Env, Action, macroExpand, evalExpr} from './Interpreter'
+import {Scope, emptyScope, Env, Action, macroExpand, evalExpr, deferExpandEval} from './Interpreter'
 import {readModuleFile, evalModule, importModule, ModuleSource, Module} from './Module'
 import Fiber from './Fiber'
 import Parser from './Parser'
@@ -102,22 +102,6 @@ function handleError(env: Env, err: Jaspr, raisedBy: Fiber, cb: Callback) {
   prompt()
 }
 
-function fullEval(code: Json, cb: Callback) {
-  const fiber = root.defer({
-    action: Action.MacroExpand, code,
-    fn: (env, cb) => scopePromise.then(s => macroExpand(env, s, code, cb))
-  })
-  lastFiber = fiber  
-  fiber.await(code => {
-    const fiber = root.defer({
-      action: Action.Eval, code,
-      fn: (env, cb) => scopePromise.then(s => evalExpr(env, s, code, cb))
-    })
-    lastFiber = fiber
-    fiber.await(cb)
-  })
-}
-
 function startTimer() {
   timeout = setTimeout(() => {
     setState(State.Timeout)
@@ -142,14 +126,15 @@ rl.on('line', line => {
         setState(State.Waiting)
         startTimer()
         const number = counter
-        fullEval(code, result => resolveFully(result, (err, result) => {
-          if (timeout != null) clearTimeout(timeout)
-          console.log(chalk.green(`№${number} ⇒`) + ' ' + prettyPrint(result))
-          lastFiber = null
-          counter++
-          setState(State.Input)
-          prompt()
-        }))
+        deferExpandEval(root, scopePromise, code).await(result =>
+          resolveFully(result, (err, result) => {
+            if (timeout != null) clearTimeout(timeout)
+            console.log(chalk.green(`№${number} ⇒`) + ' ' + prettyPrint(result))
+            lastFiber = null
+            counter++
+            setState(State.Input)
+            prompt()
+          }))
       } else {
         continued = true
         prompt()
@@ -166,7 +151,7 @@ rl.on('line', line => {
       switch (line.trim()) {
         case '':
           console.log(`Canceling fiber ${promptNumber()}!`)
-          if (lastFiber != null) lastFiber.cancel()
+          //if (lastFiber != null) lastFiber.cancel()
           // fallthrough
         case 'bg':
           lastFiber = null
@@ -183,7 +168,7 @@ rl.on('line', line => {
     case State.Recover:
       if (!continued && line.trim() === '') {
         console.log(`Canceling fiber ${promptNumber()}!`)
-        if (lastFiber != null) lastFiber.cancel()
+        //if (lastFiber != null) lastFiber.cancel()
         lastFiber = null
         counter++
         setState(State.Input)
@@ -194,7 +179,7 @@ rl.on('line', line => {
           const code = parser.getOneResult()
           setState(State.Waiting)
           startTimer()
-          fullEval(code, result => {
+          deferExpandEval(root, scopePromise, code).await(result => {
             if (errorCallback != null) errorCallback(result)
           })
         } else {

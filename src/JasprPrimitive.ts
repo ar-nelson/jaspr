@@ -12,14 +12,14 @@ import {
   isObject, isMagic, resolveFully, has, toString
 } from './Jaspr'
 import {
-  isDynamic, makeDynamic, Action, Env, call, raise, qualify
+  isDynamic, makeDynamic, Env, call, raise, qualify
 } from './Interpreter'
 import {currentSchema, Module} from './Module'
 import {NativeFn, Fn} from './NativeFn'
 import Chan from './Chan'
 import * as Names from './ReservedNames'
 import * as _ from 'lodash'
-import {expect} from 'chai'
+import {expect, AssertionError} from 'chai'
 const unicodeLength = require('string-length')
 
 
@@ -69,50 +69,53 @@ const functions: {[name: string]: Fn} = {
     return null
   },
   [Names.apply](fn, args) {
-    const d = new Deferred()
-    call(this, fn, <any[]>args, d.resolve.bind(d))
-    return d
+    return this.defer(
+      (env, cb) => call(this, fn, <any[]>args, cb),
+      () => ({action: 'apply'}))
   },
   sleep(ms) {
-    const d = new Deferred()
-    setTimeout(() => d.resolve(null), ms)
-    return d
+    return this.defer((env, cb) => setTimeout(cb, ms, null))
   },
   bool: wrap(toBool),
   'is?'(a, b) { return a === b },
   'magic?'(it) { return isMagic(it) },
   [Names.assertEquals](a, b) {
-    const d = new Deferred()
-    resolveFully(a, (err, a) => resolveFully(b, (err, b) => {
-      try {
-        if (isMagic(a) || isMagic(b)) return d.resolve(a === b)
-        expect(a).to.deep.equal(b)
-        d.resolve(true)
-      } catch (ex) {
-        this.testFailure(ex)
-        d.resolve(false)
-      }
-    }))
-    return d
+    return this.defer((env, cb) => 
+      resolveFully(a, (err, a) => resolveFully(b, (err, b) => {
+        try {
+          if (isMagic(a) || isMagic(b)) return cb(a === b)
+          expect(a).to.deep.equal(b)
+          cb(true)
+        } catch (err) {
+          if (err instanceof AssertionError) {
+            raise (this, <any>{
+              err: 'AssertFailed', why: err.message,
+              [magicSymbol]: err
+            }, cb)
+          } else raise(this, err, cb)
+        }
+      })))
   },
 
   // channels
   'chanMake!'() { return Chan.make() },
   'chan?'(it) { return Chan.isChan(it) },
   'chanSend!'(msg, chan) {
-    return this.defer({
-      action: Action.Send, inherit: true,
-      fn: (env, cb) => (<Chan>(<any>chan)[magicSymbol]).send(msg, cb)
-    })
+    return this.defer(
+      (env, cb) => {
+        const cancel = (<Chan>(<any>chan)[magicSymbol]).send(msg, cb)
+        if (cancel) this.onCancel(cancel)
+      }, () => ({action: 'send'}))
   },
   'chanRecv!'(chan) {
-    return this.defer({
-      action: Action.Recv, inherit: true,
-      fn: (env, cb) => (<Chan>(<any>chan)[magicSymbol]).recv((err, val) => {
-        if (err != null) raise(this, err, cb)
-        else cb(<Jaspr>val)
-      })
-    })
+    return this.defer(
+      (env, cb) => {
+        const cancel = (<Chan>(<any>chan)[magicSymbol]).recv((err, val) => {
+          if (err != null) raise(this, err, cb)
+          else cb(<Jaspr>val)
+        })
+        if (cancel) this.onCancel(cancel)
+      }, () => ({action: 'recv'}))
   },
   'chanClose!'(chan) {
     return (<Chan>(<any>chan)[magicSymbol]).close()
@@ -125,9 +128,7 @@ const functions: {[name: string]: Fn} = {
   'dynamicMake!'(def) { return makeDynamic(def) },
   'dynamic?'(it) { return isDynamic(it) },
   dynamicGet(dyn) {
-    const d = new Deferred()
-    this.getDynamic(<any>dyn, d.resolve.bind(d))
-    return d
+    return this.defer((env, cb) => this.getDynamic(<any>dyn, cb))
   },
 
   // simple math
@@ -174,18 +175,16 @@ const functions: {[name: string]: Fn} = {
   'NaN?': wrap(isNaN),
 
   // string
-  toString(it: Jaspr | Deferred) {
-    const d = new Deferred()
-    resolveFully(<any>it, (err, it) => d.resolve(toString(it, true)))
-    return d
+  toString(this: Env, it: Jaspr | Deferred) {
+    return this.defer((env, cb) =>
+      resolveFully(<any>it, (err, it) => cb(toString(it, true))))
   },
   toJSON(it) { 
-    const d = new Deferred()
-    resolveFully(<any>it, (err, it) => {
-      if (err) raise(this, err, d.resolve.bind(d))
-      else d.resolve(JSON.stringify(it))
-    }, true)
-    return it
+    return this.defer((env, cb) =>
+      resolveFully(<any>it, (err, it) => {
+        if (err) raise(this, err, cb)
+        else cb(JSON.stringify(it))
+      }, true))
   },
   fromJSON(a) { return JSON.parse(''+(<any>a)) },
   stringCompare(x, y) {
@@ -275,10 +274,9 @@ const functions: {[name: string]: Fn} = {
     const out = new Array<Deferred>(l)
     for (let i = 0; i < l; i++) {
       const ii = i
-      out[i] = this.defer({
-        action: Action.Eval, code: [f, ii],
-        fn: (env, cb) => call(env, f, [ii], cb)
-      })
+      out[i] = this.defer(
+        (env, cb) => call(env, f, [ii], cb),
+        () => ({action: 'eval', code: [f, ii]}))
     }
     return out
   },
@@ -298,10 +296,9 @@ const functions: {[name: string]: Fn} = {
     const out = Object.create(null), f = <any>fn
     for (let k of <string[]>(<any>keys)) {
       const kk = k
-      out[k] = this.defer({
-        action: Action.Eval, code: [f, kk],
-        fn: (env, cb) => call(env, f, [kk], cb)
-      })
+      out[k] = this.defer(
+        (env, cb) => call(env, f, [kk], cb),
+        () => ({action: 'eval', code: [f, kk]}))
     }
     return out
   },

@@ -91,9 +91,21 @@ TODO: Implement `onCancel`.
 `(choice expr₀ expr₁ … exprₙ)` evaluates `expr₀`…`exprₙ` in parallel and creates a _choice junction_ of the resulting fibers. A choice junction resolves to the value of the first fiber in the junction that resolves. Once the junction resolves, all of the unresolved fibers in the junction are _canceled_. A canceled fiber stops executing and aborts any pending `send!` or `recv!` operations; canceling a fiber cancels all of its children as well.
 
 >     (choice 'fast (await (sleep 100) 'slow)) ;= “fast”
+>     (choice (await (sleep 100) 'slow) 'fast) ;= “fast”
 >     (choice 42 (never)) ;= 42
 
 Choice junctions are the only way to cancel fibers. A typical use case is to create timeouts. For example, `(choice (sleep 100) (recv! c))` will receive on `c` with a 100ms timeout, stopping the `recv!` operation once the timeout is up. `(choice (sleep 100) (send! x c))` will attempt to send `x` on `c` with a 100ms timeout, but, if nothing receives it, the `send!` will be canceled and a future `(recv! c)` will not receive `x`.
+
+>     (let {ch: (chan!)}
+>       (await (choice (send! 'canceled ch) (sleep 100))
+>              (do (send! 'ok ch) (recv! ch)))) ;= “ok”
+
+Canceling a branch of a choice junction also cancels all branches of any choice junctions nested inside that branch.
+
+>     (let {ch: (chan!)}
+>       (await (choice (choice (send! 'canceled1 ch) (send! 'canceled2 ch))
+>                      (sleep 100))
+>              (do (send! 'ok ch) (recv! ch)))) ;= “ok”
 
     macro.choice: (fn* exprs `[p.junction ~@exprs])
 

@@ -32,7 +32,7 @@ export type Err =
   'NoBinding' | 'NoKey' | 'NoMatch' | 'BadName' | 'BadArgs' | 'BadModule' |
   'BadPattern' | 'NotCallable' | 'NoPrimitive' | 'NotJSON' | 'ChanClosed' |
   'ParseFailed' | 'EvalFailed' | 'ReadFailed' | 'WriteFailed' | 'NativeError' |
-  'NotImplemented'
+  'NotImplemented' | 'AssertFailed'
 
 export interface JasprError extends JasprObject {
   err: Err, why: string
@@ -45,19 +45,21 @@ export type ErrCallback = (err: JasprError | null, x: Jaspr) => void
  * A Deferred object is a lazy value. It is a simplified promise, without
  * chaining, error handling, or any of the other ES2015 Promise features.
  */
-export class Deferred /*implements PromiseLike<Jaspr>*/ {
+export abstract class Deferred {
   value: Jaspr | undefined = undefined
   listeners: Callback[] = []
-  canceled: boolean = false
 
-  constructor() {}
+  abstract isCanceled(): boolean
 
   /** 
    * Calls `cb` when the Deferred value is available. May call it immediately
    * (synchronously) if it has already resolved.
    */
   await(cb: Callback): void {
-    if (this.canceled) return
+    if (this.isCanceled()) {
+      this.listeners = []
+      return
+    }
     if (this.value === undefined) this.listeners.push(cb)
     else cb(this.value)
   }
@@ -67,7 +69,10 @@ export class Deferred /*implements PromiseLike<Jaspr>*/ {
    * this Deferred has already been resolved.
    */
   resolve(value: Jaspr): void {
-    if (this.canceled) return
+    if (this.isCanceled()) {
+      this.listeners = []
+      return
+    }
     if (this.value === undefined) {
       this.value = value
       for (let listener of this.listeners) listener(value)
@@ -76,28 +81,10 @@ export class Deferred /*implements PromiseLike<Jaspr>*/ {
       `Double resolve of Deferred (old: ${toString(this.value)}, new: ${toString(value)})`)
   }
 
-  cancel(): void {
-    this.listeners = []
-    this.canceled = true
-  }
-
   toString() {
-    if (this.canceled) return "(canceled)"
-    else if (this.value === undefined) return "(unresolved)"
+    if (this.value === undefined) return "(unresolved)"
     else return `(resolved: ${toString(this.value)})`
   }
-
-  /*then<T, E>(
-    onFulfilled: (x: Jaspr) => T | PromiseLike<T>,
-    onRejected?: (e: Error) => E | PromiseLike<E>
-  ) : PromiseLike<T | E> {
-    if (this.canceled) {
-      const err = new Error(`Cannot resolve ${this}; it is canceled`)
-      if (onRejected) return Promise.resolve(onRejected(err))
-      else return Promise.reject(err)
-    } else return new Promise(resolve =>
-      this.await(v => resolve(onFulfilled(v))))
-  }*/
 }
 
 export const isArray: (it: Jaspr) => it is JasprArray = Array.isArray

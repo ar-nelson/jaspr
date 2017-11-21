@@ -80,9 +80,9 @@ export class TestCase implements Should<Callback> {
       resolve()
       return null
     })
-    this.env.defer({
-      fn, dynamics: [[this.env.signalHandlerVar, handler.toClosure(this.env)]]
-    }).await(v => resolvers().reject(new assert.AssertionError({
+    this.env.defer(fn, undefined, false,
+      [[this.env.signalHandlerVar, handler.toClosure(this.env)]]
+    ).await(v => resolvers().reject(new assert.AssertionError({
       message: 'no error was raised',
       actual: v,
       expected: {err: errType}

@@ -24,7 +24,7 @@ function loadModule(
     }
     const env = Fiber.newRoot((root, err, raisedBy, cb) => {
       fail('Error evaluating module', err, raisedBy)
-      root.cancel()
+      root.fuse.cancel()
     })
     waterfall<Module, JasprError>([
       (cb: any) => readModuleFile(`test/modules/${filename}`, cb),
