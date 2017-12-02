@@ -30,7 +30,7 @@ Jaspr is a functional Lisp, in the style of Clojure. All data in Jaspr is immuta
 | `(+ 1 2)` | `["+", 1, 2]` |
 | `{a: b c: d e}` | `{"a": "b", "c": "d", "e": "e"}` |
 | `'[1 2 3]` | `["", [1, 2, 3]]` |
-| `(("autoquote" yes) ["autoquote" no])` | `[[["", "autoquote"], "yes"], ["autoquote", "no"]]` |
+| `((“autoquote” yes) [“autoquote” no])` | `[[["", "autoquote"], "yes"], ["autoquote", "no"]]` |
 | `null ; comment` | `null` |
 | `null // comment` | `null` |
 
@@ -74,7 +74,7 @@ A: Not even close, unfortunately. But you're welcome to try it out, report issue
 
 **Q: Is there any documentation yet?**
 
-A: The standard library is written as a literate program, which doubles as Markdown documentation. [You can read it here.][stdlib].  It's intended as exhaustive documentation, not a tutorial; my plan is to write a tutorial once Jaspr's basic functionality is finalized. It's also still a WIP; some parts may be unfinished or refer to old features that have been changed/removed.
+A: The standard library is written as a literate program, which doubles as Markdown documentation. [You can read it here.][stdlib] It's intended as exhaustive documentation, not a tutorial; my plan is to write a tutorial once Jaspr's basic functionality is finalized. It's also still a WIP; some parts may be unfinished or refer to old features that have been changed/removed.
 
 Notably, all of the code samples in the documentation are also unit tests, so those at least should be guaranteed to work.
 
@@ -96,7 +96,7 @@ There's also an obvious advantage if you're working with JSON: while most progra
 
 **Q: If everything is JSON, how do functions and channels work?**
 
-A: I had to fudge the rules a little bit for functions and channels. They, along with [dynamic variable references][dynamic], are _magic objects_, the only exceptions to the "everything is immutable, referentially-transparent JSON" rule.
+A: I had to fudge the rules a little bit for functions and channels. They, along with [dynamic variable references][dynamic], are _magic objects_, the only exceptions to the “everything is immutable, referentially-transparent JSON” rule.
 
 Magic objects are JSON objects with two special qualities: they can be compared using address equality, and they can't be directly serialized to JSON. Other than that, all operations that work on JSON objects work on magic objects: their type is `object`, and they have keys with values.
 
@@ -108,7 +108,7 @@ Functions are actually still plain JSON, and it's possible to create functions t
 
 **Q: Isn't concurrent-by-default evaluation terrible for performance?**
 
-A: Not necessarily. While "every expression is evaluated in its own fiber" is a good mental model for Jaspr's semantics, in practice most Jaspr code can still be evaluated synchronously. This reference implementation does just that: the interpreter's `eval` function is a [generator][generator] that yields whenever it encounters an unresolved lazy value, allowing its caller to move on to the next evaluatable subexpression.
+A: Not necessarily. While “every expression is evaluated in its own fiber” is a good mental model for Jaspr's semantics, in practice most Jaspr code can still be evaluated synchronously. This reference implementation does just that: the interpreter's `eval` function is a [generator][generator] that yields whenever it encounters an unresolved lazy value, allowing its caller to move on to the next evaluatable subexpression.
 
 The interpreter is still *really* slow, though. That's an unavoidable consequence of writing an interpreter in JavaScript. I'm planning on fixing performance in two ways: by adding a JIT that generates JS source code, and by writing a JS transpiler for production use.
 
