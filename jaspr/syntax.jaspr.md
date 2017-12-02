@@ -495,7 +495,7 @@ Looks up a name in the current scope, in a context other than the default (`valu
 >     (let {macro.to42: (fn- x 42)} ((contextGet macro to42) null)) ;= 42
 
     macro.contextGet: (closure {} `[p.contextGet ~(0 $args) ~(1 $args)])
-W
+
 ### Other Special Forms
 
 `do`, `await`, `awaitAll`, `choice`, `chan!`, `send!`, `recv!`, `close!`, and `closed?` are part of the core language; these deal with concurrency, channels, and message passing, and are defined in [Concurrency and Channels](concurrency.jaspr.md).

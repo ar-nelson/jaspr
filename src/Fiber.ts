@@ -6,76 +6,113 @@ import {
 } from './Interpreter'
 import prettyPrint from './PrettyPrint'
 import * as Names from './ReservedNames'
-import {NativeFn} from './NativeFn'
+import {NativeAsyncFn} from './NativeFn'
 import Chan from './Chan'
 import chalk from 'chalk'
 
-class InheritWeakMap<K extends object, V> extends WeakMap<K, V> {
-  readonly parent: WeakMap<K, V>
-
-  constructor(elements: Iterable<[K, V]>, parent: WeakMap<K, V>) {
-    super(elements)
-    this.parent = parent
-  }
-
-  get(key: K): V | undefined {
-    const mine = super.get(key)
-    if (mine === undefined) return this.parent.get(key)
-    else return mine
-  }
-
-  has(key: K): boolean {
-    return super.has(key) || this.parent.has(key)
-  }
-
-  toString(): string {
-    return super.toString() + '; ' + this.parent.toString()
-  }
-}
-
-class Fuse {
+export class Branch implements Env {
+  readonly root: Root
+  readonly parent: Branch
+  readonly junctionBranches: Branch[]
   canceled = false
-  listeners = new Set<() => void>()
-  cancel() {
-    if (!this.canceled) {
+  readonly listeners = new Set<() => void>()
+
+  constructor(root?: Root, parent?: Branch, junction?: Branch[]) {
+    if (root && parent) {
+      this.root = root
+      this.parent = parent
+    } else if (this instanceof Root) {
+      this.root = this
+      this.parent = this
+    } else {
+      throw new Error('non-root branch must have a parent')
+    }
+    this.junctionBranches = junction || [this]
+  }
+
+  isCanceled(): boolean {
+    if (this.canceled) return true
+    if (this.parent.isCanceled()) {
       this.canceled = true
-      for (let listener of this.listeners) listener()
+      return true
+    }
+    return false
+  }
+
+  cancel() {
+    if (!this.isCanceled()) {
+      this.canceled = true
+      for (let listener of this.listeners) {
+        listener()
+        this.parent.removeOnCancel(listener)
+      }
       this.listeners.clear()
     }
   }
   onCancel(listener: () => void) {
-    if (!this.canceled) this.listeners.add(listener)
+    if (!this.isCanceled() && !this.listeners.has(listener)) {
+      this.listeners.add(listener)
+      this.parent.onCancel(listener)
+    }
   }
   removeOnCancel(listener: () => void) {
-    if (!this.canceled) this.listeners.delete(listener)
+    if (!this.isCanceled()) {
+      if (this.listeners.delete(listener)) {
+        this.parent.removeOnCancel(listener)
+      }
+    }
   }
-  isCanceled() { return this.canceled }
+
+  defer(
+    props: () => DeferProperties = () => ({action: 'external'})
+  ): Fiber {
+    return new Fiber(this, props)
+  }
+
+  junction(
+    fns: ((env: Env, cb: Callback) => void)[],
+    props: () => DeferProperties = () => ({action: 'junction'})
+  ): Fiber {
+    const junction = new Fiber(this, props)
+    const branches = new Array<Branch>(fns.length)
+    let done = false
+    for(let i = 0; i < branches.length; i++) {
+      branches[i] = new Branch(this.root, this, branches)
+    }
+    fns.forEach((fn, i) => setImmediate(() => fn(branches[i], result => {
+      if (!done) {
+        done = true
+        branches.forEach((b, j) => {if (i !== j) b.cancel()})
+        junction.resolve(result)
+      }
+    })))
+    return junction
+  }
+  
+  gensym(name?: string) {
+    const id = uuid()
+    return name ? name + '$' + id : id
+  }
+
+  get closureName(): string { return this.root.closureName }
+  get signalHandlerVar(): JasprDynamic { return this.root.signalHandlerVar }
+  get nameVar(): JasprDynamic { return this.root.nameVar }
+
+  unhandledError(err: Jaspr, cb: Callback) {
+    this.root.errorHandler(this.root, err, this, cb)
+  }
 }
 
-class Fiber extends Deferred implements Env {
-  readonly root: RootFiber
-  readonly parent: Fiber
-  readonly dynamics: WeakMap<JasprDynamic, Jaspr | Deferred>
-  readonly fuse: Fuse
+export class Fiber extends Deferred {
+  readonly branch: Branch
   readonly props: () => DeferProperties
 
   constructor(
-    parent: Fiber | null,
-    fuse: Fuse,
-    dynamics: WeakMap<JasprDynamic, Jaspr | Deferred> = new WeakMap(),
+    branch: Branch,
     props: () => DeferProperties = () => ({action: 'external'})
   ) {
     super()
-    if (parent) {
-      this.parent = parent
-      this.root = parent.root
-    } else if (this instanceof RootFiber) {
-      this.parent = this.root = this
-    } else {
-      throw new Error('Non-root fiber must have a parent fiber')
-    }
-    this.fuse = fuse
-    this.dynamics = dynamics
+    this.branch = branch
     this.props = props
 
     // Debug information:
@@ -83,81 +120,7 @@ class Fiber extends Deferred implements Env {
     //this.await(v => console.log(prettyPrint(<Jaspr>this.code) + ' -> ' + prettyPrint(v)))
   }
 
-  isCanceled() { return this.fuse.canceled }
-  
-  defer(
-    fn: (env: Env, cb: Callback) => void,
-    props: () => DeferProperties = () => ({action: 'external'}),
-    inherit = false,
-    dynamics: [JasprDynamic, Jaspr | Deferred][] = []
-  ): Fiber {
-    const parent = inherit ? this.parent : this
-    const fiber = new Fiber(parent, this.fuse,
-      dynamics.length > 0 ? new InheritWeakMap(dynamics, this.dynamics)
-                          : this.dynamics,
-      props)
-    setImmediate(() => fn(fiber, fiber.resolve.bind(fiber)))
-    return fiber
-  }
-
-  junction(
-    fns: ((env: Env, cb: Callback) => void)[],
-    props: () => DeferProperties = () => ({action: 'junction'}),
-    inherit = false
-  ): Fiber {
-    const parent = inherit ? this.parent : this
-    const junction = new Fiber(parent, this.fuse, this.dynamics, props)
-    const branches = fns.map((fn, i): [Fuse, Fiber] => {
-      const fuse = new Fuse()
-      const fiber = new Fiber(junction, fuse, this.dynamics, () => ({
-        action: 'eval',
-        code: (() => {
-          let {code} = props()
-          if (code instanceof Deferred) {
-            if (code.value !== undefined) code = code.value
-            else return undefined
-          }
-          return code && isArray(code) ? code[i + 1] : undefined
-        })()
-      }))
-      setImmediate(() => fn(fiber, fiber.resolve.bind(fiber)))
-
-      // Once one branch resolves, the others should be canceled.
-      fiber.await(result => {
-        branches.forEach(([fuse, _], j) => {if (i !== j) fuse.cancel()})
-        junction.resolve(result)
-      })
-
-      // Cancellations should cascade to also cancel child junctions, but the
-      // listeners that cause these cascading cancelations should be removed as
-      // soon as they are unnecessary, to avoid memory leaks.
-      const cancel = () => fuse.cancel()
-      this.fuse.onCancel(cancel)
-      fuse.onCancel(() => this.fuse.removeOnCancel(cancel))
-      fiber.await(() => this.fuse.removeOnCancel(cancel))
-
-      return [fuse, fiber]
-    })
-    return junction
-  }
-
-  onCancel(listener: () => void) {
-    if (!this.isCanceled() && this.value === undefined) {
-      this.fuse.onCancel(listener)
-      this.await(() => this.fuse.removeOnCancel(listener))
-    }
-  }
-
-  getDynamic(dyn: JasprDynamic, cb: Callback): void {
-    let val = this.dynamics.get(dyn)
-    if (val === undefined) val = dyn.$default
-    waitFor(val, cb)
-  }
-
-  gensym(name?: string) {
-    const id = uuid()
-    return name ? name + '$' + id : id
-  }
+  isCanceled() { return this.branch.isCanceled() }
 
   descriptionString(color = true, history = new Set<Fiber>()): string {
     if (history.has(this)) {
@@ -190,7 +153,7 @@ class Fiber extends Deferred implements Env {
     return str
   }
 
-  stackTrace(): Fiber[] {
+  /*stackTrace(): Fiber[] {
     return [<Fiber>this].concat(this.parent.stackTrace())
   }
 
@@ -204,16 +167,8 @@ class Fiber extends Deferred implements Env {
         '\n' + (i === trace.length - 1 ? '  ' : (color ? chalk.gray('│ ') : '│ ')))
     }
     return str
-  }
+  }*/
   
-  get closureName(): string { return this.root.closureName }
-  get signalHandlerVar(): JasprDynamic { return this.root.signalHandlerVar }
-  get nameVar(): JasprDynamic { return this.root.nameVar }
-
-  unhandledError(err: Jaspr, cb: Callback) {
-    this.root.errorHandler(this.root, err, this, cb)
-  }
-
   toString() {
     if (this.value !== undefined) return `<resolved: ${toString(this.value)}>`
     else {
@@ -224,9 +179,9 @@ class Fiber extends Deferred implements Env {
 }
 
 export type ErrorHandler =
-  (root: RootFiber, err: Jaspr, raisedBy: Fiber, cb: Callback) => void
+  (root: Root, err: Jaspr, raisedIn: Branch, cb: Callback) => void
 
-export class RootFiber extends Fiber {
+export class Root extends Branch {
   readonly errorHandler: ErrorHandler
 
   constructor(
@@ -234,47 +189,40 @@ export class RootFiber extends Fiber {
       (root, err, raisedBy, cb) => {
         console.error(chalk.redBright('⚠ Unhandled Signal ⚠'))
         console.error(prettyPrint(err))
-        console.error('\n' + chalk.gray('Stack trace:'))
-        console.error(raisedBy.stackTraceString())
-        root.fuse.cancel()
+        //console.error('\n' + chalk.gray('Stack trace:'))
+        //console.error(raisedBy.stackTraceString())
+        root.cancel()
       }
   ) {
-    super(null, new Fuse(), new WeakMap(), () => ({action: 'root'}))
+    super()
     this.errorHandler = errorHandler
   }
 
-  cancel() { this.fuse.cancel() }
+  isCanceled() { return this.canceled }
+
   deferCancelable(
     fn: (env: Env, cb: Callback) => void,
     dynamics: [JasprDynamic, Jaspr | Deferred][] = []
   ): {fiber: Fiber, cancel: () => void} {
-    const fuse = new Fuse()
-    const fiber = new Fiber(this, fuse, new WeakMap(dynamics))
-    setImmediate(() => fn(fiber, fiber.resolve.bind(fiber)))
-    return {fiber, cancel: () => fuse.cancel()}
+    const branch = new Branch(this, this)
+    const fiber = new Fiber(branch)
+    setImmediate(() => fn(branch, fiber.resolve.bind(fiber)))
+    return {fiber, cancel: () => branch.cancel()}
   }
 
-  descriptionString() { return 'root' }
-  stackTrace(): Fiber[] { return [this] }
   unhandledError(err: Jaspr, cb: Callback) {
-    this.errorHandler(this, err, <any>this, cb)
+    this.errorHandler(this, err, this, cb)
   }
 
   readonly _closureName = this.gensym('closure')
   readonly _signalHandlerVar = makeDynamic(
-    new NativeFn(function rootErrorHandler(err) {
-      return this.defer(this.unhandledError.bind(this))
+    new NativeAsyncFn(function rootErrorHandler([err], cb) {
+      this.unhandledError(err, v => cb(undefined, v))
     }).toClosure(this))
   readonly _nameVar = makeDynamic(null)
   get closureName() { return this._closureName }
   get signalHandlerVar() { return this._signalHandlerVar }
   get nameVar() { return this._nameVar }
-}
-
-namespace Fiber {
-  export function newRoot(errorHandler?: ErrorHandler): RootFiber {
-    return new RootFiber(errorHandler)
-  }
 }
 
 // https://gist.github.com/LeverOne/1308368
@@ -283,5 +231,3 @@ export function uuid(): string {
   for(b=a='';a++<36;b+=a*51&52?(a^15?8^Math.random()*(a^20?16:4):4).toString(16):'-');
   return b
 }
-
-export default Fiber

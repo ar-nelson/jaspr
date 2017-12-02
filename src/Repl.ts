@@ -3,9 +3,9 @@ import * as readline from 'readline'
 import {waterfall} from 'async'
 
 import {Jaspr, JasprError, Json, Callback, resolveFully} from './Jaspr'
-import {Scope, emptyScope, Env, Action, macroExpand, evalExpr, deferExpandEval} from './Interpreter'
+import {Scope, emptyScope, Env, expandAndEval} from './Interpreter'
 import {readModuleFile, evalModule, importModule, ModuleSource, Module} from './Module'
-import Fiber from './Fiber'
+import {Root, Branch} from './Fiber'
 import Parser from './Parser'
 import prettyPrint from './PrettyPrint'
 import prim from './JasprPrimitive'
@@ -24,7 +24,7 @@ Use CTRL-C to exit.
 enum State {Input, Waiting, Timeout, Recover}
 let state = State.Input
 let counter = 1
-let lastFiber: Fiber | null = null
+let lastCancel: (() => void) | null = null
 let timeout: any = null
 let errorCallback: Callback | null = null
 
@@ -37,7 +37,7 @@ const inputPrompt = chalk.whiteBright('☞')
 const continuePrompt = chalk.gray('…')
 const waitPrompt = chalk.gray('⏱?')
 
-const root = Fiber.newRoot(handleError)
+const root = new Root(handleError)
 let parser = new Parser('REPL input')
 let continued = false
 let ready = false
@@ -82,19 +82,19 @@ function setState(st: State) {
   state = st
 }
 
-function handleError(env: Env, err: Jaspr, raisedBy: Fiber, cb: Callback) {
+function handleError(env: Env, err: Jaspr, raisedBy: Branch, cb: Callback) {
   if (!ready) {
     console.error(chalk.redBright('\n⚠☠ Error occurred in standard library.'))
     console.error(prettyPrint(err))
-    console.error('\nStack trace:')
-    console.error(raisedBy.stackTraceString())
+    //console.error('\nStack trace:')
+    //console.error(raisedBy.stackTraceString())
     return process.exit(1)
   }
   if (timeout != null) clearTimeout(timeout)
   console.log(`\n${chalk.redBright('UNHANDLED SIGNAL')} raised in fiber ${promptNumber()}:`)
   console.log(prettyPrint(err))
-  console.log('\nStack trace:')
-  console.log(raisedBy.stackTraceString())
+  //console.log('\nStack trace:')
+  //console.log(raisedBy.stackTraceString())
   console.log('\nEnter a replacement expression to resume from where the signal was raised.')
   console.log(`Leave blank and press ENTER to cancel fiber ${promptNumber()} and continue.\n`)
   errorCallback = cb
@@ -126,15 +126,16 @@ rl.on('line', line => {
         setState(State.Waiting)
         startTimer()
         const number = counter
-        deferExpandEval(root, scopePromise, code).await(result =>
-          resolveFully(result, (err, result) => {
-            if (timeout != null) clearTimeout(timeout)
-            console.log(chalk.green(`№${number} ⇒`) + ' ' + prettyPrint(result))
-            lastFiber = null
-            counter++
-            setState(State.Input)
-            prompt()
-          }))
+        scopePromise.then(scope =>
+          expandAndEval(root, scope, code, result =>
+            resolveFully(result, (err, result) => {
+              if (timeout != null) clearTimeout(timeout)
+              console.log(chalk.green(`№${number} ⇒`) + ' ' + prettyPrint(result))
+              lastCancel = null
+              counter++
+              setState(State.Input)
+              prompt()
+            })))
       } else {
         continued = true
         prompt()
@@ -151,10 +152,10 @@ rl.on('line', line => {
       switch (line.trim()) {
         case '':
           console.log(`Canceling fiber ${promptNumber()}!`)
-          //if (lastFiber != null) lastFiber.cancel()
+          if (lastCancel != null) lastCancel()
           // fallthrough
         case 'bg':
-          lastFiber = null
+          lastCancel = null
           counter++
           setState(State.Input)
           break
@@ -168,8 +169,8 @@ rl.on('line', line => {
     case State.Recover:
       if (!continued && line.trim() === '') {
         console.log(`Canceling fiber ${promptNumber()}!`)
-        //if (lastFiber != null) lastFiber.cancel()
-        lastFiber = null
+        if (lastCancel != null) lastCancel()
+        lastCancel = null
         counter++
         setState(State.Input)
         prompt()
@@ -179,9 +180,10 @@ rl.on('line', line => {
           const code = parser.getOneResult()
           setState(State.Waiting)
           startTimer()
-          deferExpandEval(root, scopePromise, code).await(result => {
-            if (errorCallback != null) errorCallback(result)
-          })
+          scopePromise.then(scope =>
+            expandAndEval(root, scope, code, result => {
+              if (errorCallback != null) errorCallback(result)
+            }))
         } else {
           continued = true
           prompt()

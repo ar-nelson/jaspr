@@ -11,17 +11,14 @@ import {
   Jaspr, JasprObject, Deferred, Callback, magicSymbol, toBool, isArray,
   isObject, isMagic, resolveFully, has, toString
 } from './Jaspr'
-import {
-  isDynamic, makeDynamic, Env, call, raise, qualify
-} from './Interpreter'
+import {isDynamic, makeDynamic, Env, qualify} from './Interpreter'
 import {currentSchema, Module} from './Module'
-import {NativeFn, Fn} from './NativeFn'
+import {NativeFn, NativeSyncFn, NativeAsyncFn} from './NativeFn'
 import Chan from './Chan'
 import * as Names from './ReservedNames'
 import * as _ from 'lodash'
 import {expect, AssertionError} from 'chai'
 const unicodeLength = require('string-length')
-
 
 const moduleBase: Module = {
   $schema: currentSchema,
@@ -47,12 +44,12 @@ const constants: JasprObject = {
   name: null
 }
 
-function wrap(fn: (x: any) => Jaspr): Fn {
-  return function(x) { return fn(x) }
+function wrap(fn: (x: any) => Jaspr): NativeFn {
+  return new NativeSyncFn(function(x) { return fn(x) })
 }
 
-const functions: {[name: string]: Fn} = {
-  typeOf(it) {
+const functions: {[name: string]: NativeFn} = {
+  typeOf: new NativeSyncFn(function(it) {
     if (it === null) return 'null'
     switch (typeof it) {
       case 'boolean': return 'boolean'
@@ -60,94 +57,76 @@ const functions: {[name: string]: Fn} = {
       case 'string': return 'string'
       default: return isArray(it) ? 'array' : 'object'
     }
-  },
-  'gensym!'(name?) {
+  }),
+  'gensym!': new NativeSyncFn(function(name?) {
     return this.gensym(name ? ''+name : undefined)
-  },
-  'print!'(str) {
+  }),
+  'print!': new NativeAsyncFn(function([str], cb) {
     console.log(str)
-    return null
-  },
-  [Names.apply](fn, args) {
-    return this.defer(
-      (env, cb) => call(this, fn, <any[]>args, cb),
-      () => ({action: 'apply'}))
-  },
-  sleep(ms) {
-    return this.defer((env, cb) => setTimeout(cb, ms, null))
-  },
+    cb(undefined, null)
+  }),
+  sleep: new NativeAsyncFn(function([ms], cb) {
+    setTimeout(cb, ms, null)
+  }),
   bool: wrap(toBool),
-  'is?'(a, b) { return a === b },
-  'magic?'(it) { return isMagic(it) },
-  [Names.assertEquals](a, b) {
-    return this.defer((env, cb) => 
-      resolveFully(a, (err, a) => resolveFully(b, (err, b) => {
-        try {
-          if (isMagic(a) || isMagic(b)) return cb(a === b)
-          expect(a).to.deep.equal(b)
-          cb(true)
-        } catch (err) {
-          if (err instanceof AssertionError) {
-            raise (this, <any>{
-              err: 'AssertFailed', why: err.message,
-              [magicSymbol]: err
-            }, cb)
-          } else raise(this, err, cb)
-        }
-      })))
-  },
+  'is?': new NativeSyncFn(function(a, b) { return a === b }),
+  'magic?': new NativeSyncFn(function(it) { return isMagic(it) }),
+  [Names.assertEquals]: new NativeAsyncFn(function([a, b], cb) {
+    resolveFully(a, (err, a) => resolveFully(b, (err, b) => {
+      try {
+        if (isMagic(a) || isMagic(b)) return cb(undefined, a === b)
+        expect(a).to.deep.equal(b)
+        cb(undefined, true)
+      } catch (err) {
+        if (err instanceof AssertionError) cb(<any>{
+          err: 'AssertFailed', why: err.message,
+          [magicSymbol]: err
+        })
+        else cb(err)
+      }
+    }))
+  }),
 
   // channels
-  'chanMake!'() { return Chan.make() },
-  'chan?'(it) { return Chan.isChan(it) },
-  'chanSend!'(msg, chan) {
-    return this.defer(
-      (env, cb) => {
-        const cancel = (<Chan>(<any>chan)[magicSymbol]).send(msg, cb)
-        if (cancel) this.onCancel(cancel)
-      }, () => ({action: 'send'}))
-  },
-  'chanRecv!'(chan) {
-    return this.defer(
-      (env, cb) => {
-        const cancel = (<Chan>(<any>chan)[magicSymbol]).recv((err, val) => {
-          if (err != null) raise(this, err, cb)
-          else cb(<Jaspr>val)
-        })
-        if (cancel) this.onCancel(cancel)
-      }, () => ({action: 'recv'}))
-  },
-  'chanClose!'(chan) {
+  'chanMake!': new NativeSyncFn(function() { return Chan.make() }),
+  'chan?': new NativeSyncFn(function(it) { return Chan.isChan(it) }),
+  'chanSend!': new NativeAsyncFn(function([msg, chan], cb) {
+    const cancel =
+      (<Chan>(<any>chan)[magicSymbol]).send(msg, x => cb(undefined, x))
+    if (cancel) this.onCancel(cancel)
+  }),
+  'chanRecv!': new NativeAsyncFn(function([chan], cb) {
+    const cancel = (<Chan>(<any>chan)[magicSymbol]).recv(cb)
+    if (cancel) this.onCancel(cancel)
+  }),
+  'chanClose!': new NativeSyncFn(function(chan) {
     return (<Chan>(<any>chan)[magicSymbol]).close()
-  },
-  'chanClosed?'(chan) {
+  }),
+  'chanClosed?': new NativeSyncFn(function(chan) {
     return (<Chan>(<any>chan)[magicSymbol]).closed
-  },
+  }),
 
   // dynamic variables
-  'dynamicMake!'(def) { return makeDynamic(def) },
-  'dynamic?'(it) { return isDynamic(it) },
-  dynamicGet(dyn) {
-    return this.defer((env, cb) => this.getDynamic(<any>dyn, cb))
-  },
+  'dynamicMake!': new NativeSyncFn(function(def) { return makeDynamic(def) }),
+  'dynamic?': new NativeSyncFn(function(it) { return isDynamic(it) }),
 
   // simple math
-  '<'(a, b) { return +(<any>a) < +(<any>b) },
-  '<='(a, b) { return +(<any>a) <= +(<any>b) },
-  add(a, b) { return +(<any>a) + +(<any>b) },
-  subtract(a, b) { return +(<any>a) - +(<any>b) },
-  multiply(a, b) { return +(<any>a) * +(<any>b) },
-  divide(a, b) { return +(<any>a) / +(<any>b) },
-  remainder(a, b) { return +(<any>a) % +(<any>b) },
-  modulus(a, b) {
+  '<': new NativeSyncFn(function(a, b) { return +(<any>a) < +(<any>b) }),
+  '<=': new NativeSyncFn(function(a, b) { return +(<any>a) <= +(<any>b) }),
+  add: new NativeSyncFn(function(a, b) { return +(<any>a) + +(<any>b) }),
+  subtract: new NativeSyncFn(function(a, b) { return +(<any>a) - +(<any>b) }),
+  multiply: new NativeSyncFn(function(a, b) { return +(<any>a) * +(<any>b) }),
+  divide: new NativeSyncFn(function(a, b) { return +(<any>a) / +(<any>b) }),
+  remainder: new NativeSyncFn(function(a, b) { return +(<any>a) % +(<any>b) }),
+  modulus: new NativeSyncFn(function(a, b) {
     const x = +(<any>a), y = +(<any>b)
     return (Math.abs(x) * Math.sign(y)) % y
-  },
-  negate(a) { return -(<any>a) },
+  }),
+  negate: new NativeSyncFn(function(a) { return -(<any>a) }),
 
   // advanced math
-  'random!'() { return Math.random() },
-  pow(a, b) { return Math.pow(<any>a, <any>b) },
+  'random!': new NativeSyncFn(function() { return Math.random() }),
+  pow: new NativeSyncFn(function(a, b) { return Math.pow(<any>a, <any>b) }),
   sqrt: wrap(Math.sqrt),
   cbrt: wrap(Math.cbrt),
   log: wrap(Math.log),
@@ -169,50 +148,48 @@ const functions: {[name: string]: Fn} = {
   asinh: wrap(Math.asinh),
   acosh: wrap(Math.acosh),
   atanh: wrap(Math.atanh),
-  atan2(a, b) { return Math.atan2(<any>a, <any>b) },
-  hypot(a, b) { return Math.hypot(<any>a, <any>b) },
+  atan2: new NativeSyncFn(function(a, b) { return Math.atan2(<any>a, <any>b) }),
+  hypot: new NativeSyncFn(function(a, b) { return Math.hypot(<any>a, <any>b) }),
   'finite?': wrap(isFinite),
   'NaN?': wrap(isNaN),
 
   // string
-  toString(this: Env, it: Jaspr | Deferred) {
-    return this.defer((env, cb) =>
-      resolveFully(<any>it, (err, it) => cb(toString(it, true))))
-  },
-  toJSON(it) { 
-    return this.defer((env, cb) =>
-      resolveFully(<any>it, (err, it) => {
-        if (err) raise(this, err, cb)
-        else cb(JSON.stringify(it))
-      }, true))
-  },
-  fromJSON(a) { return JSON.parse(''+(<any>a)) },
-  stringCompare(x, y) {
+  toString: new NativeAsyncFn(function([it], cb) {
+    resolveFully(<any>it, (err, it) => cb(undefined, toString(it, true)))
+  }),
+  toJSON: new NativeAsyncFn(function([it], cb) {
+    resolveFully(<any>it, (err, it) => {
+      if (err) cb(err)
+      else cb(undefined, JSON.stringify(it))
+    })
+  }),
+  fromJSON: new NativeSyncFn(function(a) { return JSON.parse(''+(<any>a)) }),
+  stringCompare: new NativeSyncFn(function(x, y) {
     const a = ''+(<any>x), b = ''+(<any>y)
     if (a < b) return -1
     else if (a > b) return 1
     else return 0
-  },
-  stringConcat(a, b) { return ''+(<any>a) + (<any>b) },
-  stringReplace(orig, repl, str) {
+  }),
+  stringConcat: new NativeSyncFn(function(a, b) { return '' + a + b }),
+  stringReplace: new NativeSyncFn(function(orig, repl, str) {
     return String.prototype.replace.call(
       ''+(<any>str), ''+(<any>orig), ''+(<any>repl))
-  },
-  stringNativeIndexOf(needle, haystack, start) {
+  }),
+  stringNativeIndexOf: new NativeSyncFn(function(needle, haystack, start) {
     return String.prototype.indexOf.call(
       ''+(<any>needle), ''+(<any>haystack), (<any>start)|0)
-  },
-  stringNativeLastIndexOf(needle, haystack, start) {
+  }),
+  stringNativeLastIndexOf: new NativeSyncFn(function(needle, haystack, start) {
     return String.prototype.lastIndexOf.call(
       ''+(<any>needle), ''+(<any>haystack), (<any>start)|0)
-  },
-  stringNativeLength(str) { return (''+(<any>str)).length },
-  stringUnicodeLength(str) { return unicodeLength(str) },
-  stringNativeSlice(start, end, str) { 
+  }),
+  stringNativeLength: new NativeSyncFn(function(str) { return (''+(<any>str)).length }),
+  stringUnicodeLength: new NativeSyncFn(function(str) { return unicodeLength(str) }),
+  stringNativeSlice: new NativeSyncFn(function(start, end, str) { 
     return String.prototype.slice.call(
       ''+(<any>str), (<any>start)|0, (<any>end)|0)
-  },
-  stringUnicodeSlice(start, end, str) { 
+  }),
+  stringUnicodeSlice: new NativeSyncFn(function(start, end, str) { 
     let out = '', index = 0
     const st = (<any>start)|0, ed = (<any>end)|0
     for (let c of ''+(<any>str)) {
@@ -221,117 +198,100 @@ const functions: {[name: string]: Fn} = {
       else index++
     }
     return out
-  },
-  stringNativeCharAt(index, str) {
+  }),
+  stringNativeCharAt: new NativeSyncFn(function(index, str) {
     return String.prototype.charAt.call(
       ''+(<any>str), (<any>index)|0)
-  },
-  stringUnicodeCharAt(index, str) {
+  }),
+  stringUnicodeCharAt: new NativeSyncFn(function(index, str) {
     let i = (<any>index)|0
     for (let c of ''+(<any>str)) if (i-- <= 0) return c
     return ''
-  },
-  stringUnicodeCodePointAt(index, str) {
+  }),
+  stringUnicodeCodePointAt: new NativeSyncFn(function(index, str) {
     let i = (<any>index)|0
     for (let c of ''+(<any>str)) {
-      if (i-- <= 0) return c.codePointAt(0)
+      if (i-- <= 0) return <number>c.codePointAt(0)
     }
     return null
-  },
-  stringNativeChars(inStr) {
+  }),
+  stringNativeChars: new NativeSyncFn(function(inStr) {
     let str = ''+(<any>inStr), out = new Array<string>(str.length)
     for (let i = 0; i < out.length; i++) out[i] = str.charAt(i)
     return out
-  },
-  stringUnicodeChars(str) { return [...''+(<any>str)] },
-  stringUnicodeCodePoints(str) {
-    return [...''+(<any>str)].map(c => c.codePointAt(0))
-  },
-  stringNativeFromChars(chars) {
+  }),
+  stringUnicodeChars: new NativeSyncFn(function(str) { return [...''+(<any>str)] }),
+  stringUnicodeCodePoints: new NativeSyncFn(function(str) {
+    return [...''+(<any>str)].map(c => <number>c.codePointAt(0))
+  }),
+  stringNativeFromChars: new NativeSyncFn(function(chars) {
     return Array.prototype.reduce.call(
       <any>chars,
       (a: string, b: string) => a + b, '')
-  },
-  stringUnicodeFromCodePoints(codePoints) {
+  }),
+  stringUnicodeFromCodePoints: new NativeSyncFn(function(codePoints) {
     return String.fromCodePoint(...<any>codePoints)
-  },
-  stringNFC(str) {
+  }),
+  stringNFC: new NativeSyncFn(function(str) {
     return String.prototype.normalize.call(''+(<any>str), 'NFC')
-  },
-  stringNFD(str) {
+  }),
+  stringNFD: new NativeSyncFn(function(str) {
     return String.prototype.normalize.call(''+(<any>str), 'NFD')
-  },
-  stringNFKC(str) {
+  }),
+  stringNFKC: new NativeSyncFn(function(str) {
     return String.prototype.normalize.call(''+(<any>str), 'NFKC')
-  },
-  stringNFKD(str) {
+  }),
+  stringNFKD: new NativeSyncFn(function(str) {
     return String.prototype.normalize.call(''+(<any>str), 'NFKD')
-  },
+  }),
 
   // arrays
-  arrayMake(fn, len) {
-    const l = (<any>len)|0, f = <any>fn
-    const out = new Array<Deferred>(l)
-    for (let i = 0; i < l; i++) {
-      const ii = i
-      out[i] = this.defer(
-        (env, cb) => call(env, f, [ii], cb),
-        () => ({action: 'eval', code: [f, ii]}))
-    }
-    return out
-  },
-  [Names.arrayConcat](...args) {
+  [Names.arrayConcat]: new NativeSyncFn(function(...args) {
     let out: Jaspr[] = []
     for (let next of args) out = out.concat(<any>next)
     return out
-  },
-  arrayLength(a) { return (<any>a).length },
-  arraySlice(start, end, a) {
+  }),
+  arrayLength: new NativeSyncFn(function(a) { return (<any>a).length }),
+  arraySlice: new NativeSyncFn(function(start, end, a) {
     return Array.prototype.slice.call(
       <any>a, (<any>start)|0, (<any>end)|0)
-  },
+  }),
 
   // objects
-  objectMake(fn, keys) {
-    const out = Object.create(null), f = <any>fn
-    for (let k of <string[]>(<any>keys)) {
-      const kk = k
-      out[k] = this.defer(
-        (env, cb) => call(env, f, [kk], cb),
-        () => ({action: 'eval', code: [f, kk]}))
-    }
-    return out
-  },
-  objectHas(key, obj) {
+  objectHas: new NativeSyncFn(function(key, obj) {
     return has(<any>obj, ''+(<any>key))
-  },
-  objectInsert(key, val, obj) {
+  }),
+  objectInsert: new NativeSyncFn(function(key, val, obj) {
     const out = Object.create(null), o = <any>obj
     for (let oldKey in o) out[oldKey] = o[oldKey]
     out[''+(<any>key)] = <any>val
     return out
-  },
-  objectDelete(key, obj) {
+  }),
+  objectDelete: new NativeSyncFn(function(key, obj) {
     const out = Object.create(null), k = ''+(<any>key), o = <any>obj
     for (let oldKey in o) if (oldKey !== k) out[oldKey] = o[oldKey]
     return out
-  },
-  objectKeys(obj) { return Object.keys(<any>obj) },
-  objectValues(obj) {
+  }),
+  objectKeys: new NativeSyncFn(function(obj) { return Object.keys(<any>obj) }),
+  objectValues: new NativeSyncFn(function(obj) {
     const o = <any>obj
     return Object.keys(o).map(k => o[k])
-  }
+  })
 }
 
 const macros: {[name: string]: string} = {
+  apply: Names.apply,
+  arrayMake: Names.arrayMake,
   closure: Names.closure,
   contextGet: Names.contextGet,
+  dynamicGet: Names.dynamicGet,
   dynamicLet: Names.dynamicLet,
   eval: Names.eval_,
   'if': Names.if_,
-  then: Names.then,
   junction: Names.junction,
-  macroexpand: Names.macroexpand
+  macroexpand: Names.macroexpand,
+  objectMake: Names.objectMake,
+  then: Names.then
 }
 
 moduleBase.$export =
@@ -349,14 +309,14 @@ moduleBase.qualified =
 
 export default function JasprPrimitive(env: Env): Module {
   const value = _(functions)
-    .mapValues((fn: Fn) => new NativeFn(fn).toClosure(env))
+    .mapValues((fn: NativeFn) => fn.toClosure(env))
     .assign(constants, {
       scopeKey: env.closureName,
       signalHandler: env.signalHandlerVar,
       name: env.nameVar
     }).value()
   const macro = _.mapValues(macros, name =>
-    new NativeFn(function(...args) {
+    new NativeSyncFn(function(...args) {
       let code: Jaspr[] = [name]
       for (let arg of args) code.push(arg)
       return code

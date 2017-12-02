@@ -8,8 +8,8 @@ import {
   isObject, has
 } from './Jaspr'
 import {
-  Scope, emptyScope, mergeScopes, Env, evalDefs, deferExpandEval, isLegalName,
-  Namespace, qualify
+  Scope, emptyScope, mergeScopes, Env, evalDefs, expandAndEval, isLegalName,
+  Namespace, qualify, validateNames
 } from './Interpreter'
 import {prefix, primitiveModule} from './ReservedNames'
 import Parser from './Parser'
@@ -347,41 +347,41 @@ export function evalModule(
     _.pickBy(module, v => v !== undefined),
     ...Object.keys(module).filter(x => x.startsWith('$')))
   const ns = {$module: $module || null, $version: $version || null}
-  evalDefs(env, ns, evalScope, defs, (err, scope) => {
-    if (err || scope === undefined) return cb(err)
+  const nameError = validateNames(defs, ns)
+  if (nameError != null) return cb(nameError)
+  const scope = evalDefs(env, evalScope, [], undefined, defs, ns)
     
-    // TODO: Remove this debug code!
-    // ---------------------------------------------------------------------------
-    for (let k in scope.value) {
-      const v = scope.value[k]
-      if (v instanceof Deferred) {
-        const timeout =
-          setTimeout(() => console.warn(`value.${k} has not resolved!`), 2500)
-        v.await(() => clearTimeout(timeout))
-      }
+  // TODO: Remove this debug code!
+  // ---------------------------------------------------------------------------
+  for (let k in scope.value) {
+    const v = scope.value[k]
+    if (v instanceof Deferred) {
+      const timeout =
+        setTimeout(() => console.warn(`value.${k} has not resolved!`), 2500)
+      v.await(() => clearTimeout(timeout))
     }
-    for (let k in scope.macro) {
-      const v = scope.macro[k]
-      if (v instanceof Deferred) {
-        const timeout =
-          setTimeout(() => console.warn(`macro.${k} has not resolved!`), 2500)
-        v.await(() => clearTimeout(timeout))
-      }
+  }
+  for (let k in scope.macro) {
+    const v = scope.macro[k]
+    if (v instanceof Deferred) {
+      const timeout =
+        setTimeout(() => console.warn(`macro.${k} has not resolved!`), 2500)
+      v.await(() => clearTimeout(timeout))
     }
-    // ---------------------------------------------------------------------------
+  }
+  // ---------------------------------------------------------------------------
 
-    scope.$schema = $schema
-    scope.$module = $module || null
-    scope.$version = $version || null
-    scope.$doc = $doc || null
-    scope.$author = $author || null
-    scope.$import = $import || Object.create(null)
-    scope.$export = $export || Object.create(null)
-    scope.$main = runMain && $main !== undefined
-      ? deferExpandEval(env, scope, $main, qualify(ns, '$main'))
-      : null
-    cb(undefined, <Module>scope)
-  })
+  scope.$schema = $schema
+  scope.$module = $module || null
+  scope.$version = $version || null
+  scope.$doc = $doc || null
+  scope.$author = $author || null
+  scope.$import = $import || Object.create(null)
+  scope.$export = $export || Object.create(null)
+  //scope.$main = runMain && $main !== undefined
+  //  ? deferExpandEval(env, scope, $main, qualify(ns, '$main'))
+  //  : null
+  cb(undefined, <Module>scope)
 }
 
 export function importModule(

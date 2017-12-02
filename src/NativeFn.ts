@@ -1,40 +1,80 @@
 import {
-  Jaspr, JasprArray, JasprObject, Callback, Deferred, resolveArray, magicSymbol
+  Jaspr, JasprArray, JasprObject, JasprError, Callback, Deferred, resolveArray, magicSymbol
 } from './Jaspr'
-import {Env, raise, waitFor} from './Interpreter'
+import {Env} from './Interpreter'
 import * as Names from './ReservedNames'
 
-export type Fn = (this: Env, ...args: Jaspr[]) => Jaspr|Deferred
+export type SyncFn = (this: Env, ...args: Jaspr[]) => Jaspr
+export type AsyncFn = (this: Env, args: Jaspr[], cb: AsyncResultCallback<Jaspr, JasprError>) => void
 
-export class NativeFn {
-  readonly source: string
-  readonly fn: Fn
+export abstract class NativeFn {
+  readonly source: string[]
+  constructor(source: string[]) {this.source = source}
+  abstract call(env: Env, args: Jaspr[], cb: AsyncResultCallback<Jaspr, JasprError>): void
+  abstract toClosure(env: Env): JasprObject
+  arity() {return this.source.length - 1}
+  toString() { return `Native function (${this.source})` }
+}
 
-  constructor(fn: Fn | string, ...rest: string[]) {
+export class NativeSyncFn extends NativeFn {
+  readonly fn: SyncFn
+
+  constructor(fn: SyncFn | string, ...rest: string[]) {
     if (typeof fn === 'string') {
-      this.source = fn
-      this.fn = <Fn>new Function(fn, ...rest)
+      super([fn, ...rest])
+      this.fn = <SyncFn>new Function(fn, ...rest)
     } else {
-      this.source = fn.toString()
+      super([...new Array(fn.length).fill(''), fn.toString()])
       this.fn = fn
     }
   }
 
-  call(env: Env, args: JasprArray, cb: Callback): void {
-    resolveArray(args, args => waitFor(this.fn.apply(env, args), cb))
+  call(env: Env, args: JasprArray, cb: AsyncResultCallback<Jaspr, JasprError>) {
+    resolveArray(args, args => {
+      let result: Jaspr
+      try {result = this.fn.apply(env, args)}
+      catch (err) {
+        if (err instanceof Error) {
+          return cb({err: 'NativeError', why: err.toString()})
+        } else return cb(err)
+      }
+      cb(undefined, result)
+    })
   }
 
   toClosure(env: Env): JasprObject {
     return {
       [env.closureName]: {},
-      [Names.code]: [`${Names.primitiveModule}.${Names.apply}`,
-                     [Names.js, this.source],
-                     Names.args],
+      [Names.code]: [[Names.jsSync, ...this.source],
+                     ...new Array(this.arity()).map((v, i) => [i, Names.args])],
       [magicSymbol]: this
     }
   }
+}
 
-  toString() {
-    return `Native function (${this.source})`
+export class NativeAsyncFn extends NativeFn {
+  readonly fn: AsyncFn
+
+  constructor(fn: AsyncFn | string, ...rest: string[]) {
+    if (typeof fn === 'string') {
+      super([fn, ...rest])
+      this.fn = <AsyncFn>new Function(fn, ...rest)
+    } else {
+      super([...new Array(fn.length).fill(''), fn.toString()])
+      this.fn = fn
+    }
+  }
+  
+  call(env: Env, args: JasprArray, cb: AsyncResultCallback<Jaspr, JasprError>) {
+    resolveArray(args, args => this.fn.call(env, args, cb))
+  }
+
+  toClosure(env: Env): JasprObject {
+    return {
+      [env.closureName]: {},
+      [Names.code]: [[Names.jsAsync, ...this.source],
+                     ...new Array(this.arity()).map((v, i) => [i, Names.args])],
+      [magicSymbol]: this
+    }
   }
 }

@@ -4,12 +4,12 @@ import {
 } from '../src/Jaspr'
 import {
   Env, Action, Scope, emptyScope, raise, evalExpr, macroExpand, evalDefs,
-  deferExpandEval, waitFor
+  waitFor, DynamicMap
 } from '../src/Interpreter'
-import Fiber from '../src/Fiber'
+import {Root} from '../src/Fiber'
 import newPrimitiveModule from '../src/JasprPrimitive'
 import prettyPrint from '../src/PrettyPrint'
-import {NativeFn} from '../src/NativeFn'
+import {NativeSyncFn} from '../src/NativeFn'
 import {importModule} from '../src/Module'
 import * as _ from 'lodash'
 import * as assert from 'assert'
@@ -69,9 +69,9 @@ export class TestCase implements Should<Callback> {
     })
   }
 
-  raise(errType: Err, fn: (env: Env, cb: Callback) => void): void {
+  raise(errType: Err, fn: (dynamics: DynamicMap, cb: Callback) => void): void {
     const resolvers = this.pushPromise()
-    const handler = new NativeFn(function(err) {
+    const handler = new NativeSyncFn(function(err) {
       const {resolve, reject} = resolvers()
       try {
         expect(err).to.be.an('object')
@@ -80,9 +80,12 @@ export class TestCase implements Should<Callback> {
       resolve()
       return null
     })
-    this.env.defer(fn, undefined, false,
-      [[this.env.signalHandlerVar, handler.toClosure(this.env)]]
-    ).await(v => resolvers().reject(new assert.AssertionError({
+    const d = this.env.defer()
+    fn({
+      key: this.env.signalHandlerVar,
+      value: handler.toClosure(this.env)
+    }, d.resolve.bind(d))
+    d.await(v => resolvers().reject(new assert.AssertionError({
       message: 'no error was raised',
       actual: v,
       expected: {err: errType}
@@ -117,21 +120,21 @@ export class TestCase implements Should<Callback> {
 export const withEnv = (body: (env: Env, should: TestCase) => void) => () =>
   new Promise<void>((resolve, reject) => {
     let errored = false
-    const root = Fiber.newRoot((root, err, raisedBy, cb) => {
+    const root = new Root((root, err, raisedBy, cb) => {
       if (errored) return cb(null)
       errored = true
       reject(new assert.AssertionError({
-        message: `
-Unhandled signal raised:
-${prettyPrint(err, false)}
-
-Stack trace:
-${raisedBy.stackTraceString(false)}`
+        message: `\nUnhandled signal raised:\n\n${prettyPrint(err, false)}`
       }))
       root.cancel()
     })
-    const testCase = new TestCase(root)
-    body(root, testCase)
-    expect(testCase.promises).to.not.be.empty
-    Promise.all(testCase.promises).then(() => resolve(), reject)
+    if (body.length < 2) {
+      body(root, <any>null)
+      resolve()
+    } else {
+      const testCase = new TestCase(root)
+      body(root, testCase)
+      expect(testCase.promises).to.not.be.empty
+      Promise.all(testCase.promises).then(() => resolve(), reject)
+    }
   })

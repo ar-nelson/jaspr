@@ -1,18 +1,17 @@
 import {
   Jaspr, JasprError, resolveFully, toString, toBool, isObject, magicSymbol
 } from '../src/Jaspr'
-import Fiber from '../src/Fiber'
-import {RootFiber} from '../src/Fiber'
-import {deferExpandEval} from '../src/Interpreter'
+import {Root, Branch} from '../src/Fiber'
+import {expandAndEval} from '../src/Interpreter'
 import {readModuleFile, evalModule, ModuleSource, Module} from '../src/Module'
 import newPrimitiveModule from '../src/JasprPrimitive'
 import prettyPrint from '../src/PrettyPrint'
-import {NativeFn} from '../src/NativeFn'
+import {NativeSyncFn} from '../src/NativeFn'
 import {expect, AssertionError} from 'chai'
 import {waterfall} from 'async'
 
 let stdlib: Promise<Module> | null = null
-let root: RootFiber | null
+let root: Root | null
 
 describe('the standard library', () => {
   it('loads', function() {
@@ -23,12 +22,12 @@ describe('the standard library', () => {
   before(() => {
     stdlib = new Promise<Module>((resolve, reject) => {
       let errored = false
-      function fail(msg: string, err: Jaspr, raisedBy?: Fiber): void {
+      function fail(msg: string, err: Jaspr, raisedBy?: Branch): void {
         reject(new AssertionError(
-          `\n${msg}: ${prettyPrint(err, false)}` +
-            (raisedBy ? `\n\nStack trace:\n${raisedBy.stackTraceString(false)}` : '')))
+          `\n${msg}: ${prettyPrint(err, false)}` /*+
+          (raisedBy ? `\n\nStack trace:\n${raisedBy.stackTraceString(false)}` : '')*/))
       }
-      const env = root = Fiber.newRoot((root, err, raisedBy, cb) => {
+      const env = root = new Root((root, err, raisedBy, cb) => {
         if (errored) return cb(null)
         errored = true
         resolveFully(err, (resErr, err) => {
@@ -58,21 +57,21 @@ describe('the standard library', () => {
           const env = root
           if (!env) return reject('env is null')
           const {fiber, cancel} = env.deferCancelable(
-            (env, cb) =>
-              deferExpandEval(env, mod, mod.test[test], `jaspr.${test}`).await(v => {
-                try { expect(toBool(v)).to.be.true }
-                catch (ex) { reject(ex) }
-                cb(v)
-              }),
-            [[env.signalHandlerVar,
-              new NativeFn(function errorHandler(err) {
-                if (isObject(err) && err[magicSymbol] instanceof Error) {
-                  reject(err[magicSymbol])
-                } else reject(new AssertionError(prettyPrint(err, false)))
-                cancel()
-                return null
-              }).toClosure(env)]])
-          fiber.await(resolve)
+            (env, cb) => expandAndEval(env, mod, [], {
+                key: env.signalHandlerVar,
+                value: new NativeSyncFn(function errorHandler(err) {
+                  if (isObject(err) && err[magicSymbol] instanceof Error) {
+                    reject(err[magicSymbol])
+                  } else reject(new AssertionError(prettyPrint(err, false)))
+                  cancel()
+                  return null
+                }).toClosure(env)
+              }, mod.test[test], cb))
+          fiber.await(v => {
+            try { expect(toBool(v)).to.be.true }
+            catch (ex) { return reject(ex) }
+            resolve(v)
+          })
         }))
       }
     }))
