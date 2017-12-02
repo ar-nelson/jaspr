@@ -34,11 +34,15 @@ Jaspr is a functional Lisp, in the style of Clojure. All data in Jaspr is immuta
 | `null ; comment` | `null` |
 | `null // comment` | `null` |
 
-Jaspr's evaluation is concurrent by default: function arguments and data structure elements have no set evaluation order, but are each evaluated in their own fibers (lightweight threads). This is similar to lazy evaluation in languages like Haskell, except that even unused subexpressions will always be evaluated eventually.
+Strings are evaluated as symbols unless they are quoted (the empty string is the quote macro). There is no string/symbol split, because a Jaspr value must be one of the [6 JSON data types][json].
+
+Evaluation is concurrent by default: function arguments and data structure elements have no set evaluation order, but are each evaluated in their own fibers (lightweight threads). This is similar to lazy evaluation in languages like Haskell, except that even unused subexpressions will always be evaluated eventually.
 
 Functions in Jaspr can have side effects, but there are no mutable data structures. Jaspr supports communication between fibers via channels; these are the same kinds of channels used in Go or in Clojure's `core/async`, and they are the only mutable state in the language.
 
 Jaspr source files are modules consisting of a single top-level JSON object, in which each key not starting with `$` is a definition.
+
+[json]: http://json.org/
 
 Why?
 ----
@@ -100,7 +104,7 @@ A: I had to fudge the rules a little bit for functions and channels. They, along
 
 Magic objects are JSON objects with two special qualities: they can be compared using address equality, and they can't be directly serialized to JSON. Other than that, all operations that work on JSON objects work on magic objects: their type is `object`, and they have keys with values.
 
-Functions are actually still plain JSON, and it's possible to create functions that aren't magic objects, so long as they aren't recursive. Jaspr takes after ultra-minimalistic Lisps like [newLISP][newlisp] and [PicoLisp][picolisp] in that the scope is just another data structure, and closures are just data structures containing a scope and code. However, scopes may contain self-references, thus functions must be unserializable to prevent infinite loops. But they are ordinary JSON objects in every other way; this opens up interesting metaprogramming possibilities, by allowing functions and macros to directly inspect a function's scope or code.
+Functions are actually still plain JSON, and it's possible to create functions that aren't magic objects, so long as they aren't recursive. Jaspr takes after ultra-minimalistic Lisps like [newLISP][newlisp] and [PicoLisp][picolisp] in that the scope is just another data structure, and closures are just data structures containing a scope and code. However, scopes may contain self-references, thus functions must be unserializable to prevent infinite loops. But they are ordinary JSON objects in every other way, and this opens up interesting metaprogramming possibilities by allowing functions and macros to directly inspect a function's scope or code.
 
 [dynamic]: https://github.com/ar-nelson/jaspr/blob/master/jaspr/data-types.jaspr.md#dynamic-variables
 [newlisp]: http://www.newlisp.org/
