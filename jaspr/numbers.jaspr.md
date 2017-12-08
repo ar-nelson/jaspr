@@ -352,7 +352,7 @@ The [Kronecker delta](https://en.wikipedia.org/wiki/Kronecker_delta) function _�
 >     (kronecker 42 42) ;= 1
 >     (kronecker 1 2) ;= 0
 
-The preferred alias of this function is `δ`, which allows `(δ i j)` to be used as shorthand for `(if (= i j) 1 0)`.
+This function only becomes useful when it is called by its alias `δ`, as `(δ i j)` can be used as shorthand for `(if (= i j) 1 0)`.
 
 ---
 

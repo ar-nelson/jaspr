@@ -536,4 +536,4 @@ If a macro uses a string as a marker to separate parts of an array (for example,
 :---|:---:|---:
 
 [toc]: jaspr.jaspr.md
-[next]: data-types.md
+[next]: data-types.jaspr.md

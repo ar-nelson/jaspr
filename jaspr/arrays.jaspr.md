@@ -25,7 +25,7 @@
 
 ### `snoc`
 
-A backwards `cons`. `(snoc xs x0 x1 ... xn)` constructs a new array made up of the elements of `xs` with `x0`...`xn` appended to the end.
+A backwards `cons`. `(snoc xs x₀ x₁ … xₙ)` constructs a new array made up of the elements of `xs` with `x₀`…`xₙ` appended to the end.
 
 >     (snoc '[1] 2) ;= [1 2]
 >     (snoc '[1] 2 3) ;= [1 2 3]
@@ -42,7 +42,7 @@ A backwards `cons`. `(snoc xs x0 x1 ... xn)` constructs a new array made up of t
 
 ### `cat`
 
-`(cat a0 a1 ... an)` returns the concatenation of the arrays `a0`...`an`.
+`(cat a₀ a₁ … aₙ)` returns the concatenation of the arrays `a₀`…`aₙ`.
 
 >     (cat)                ;= []
 >     (cat '[1 2])         ;= [1, 2]
@@ -127,13 +127,11 @@ A backwards `cons`. `(snoc xs x0 x1 ... xn)` constructs a new array made up of t
 
 ### `transpose`
 
-`(transpose xs)` flips a 2D array along its diagonal. That is, given an array `[r0, r1, ..., rn]`, where each `r` is of length `m`, `transpose` returns an array `[c0, c1, ..., cm]`, where `ci` = `[(i r0), (i r1), ... (i rn)]`.
+`(transpose xs)` flips a 2D array along its diagonal. That is, given an array `[r₀, r₁, …, rₙ]`, where each `r` is of length `m`, `transpose` returns an array `[c₀, c₁, …, cₘ]`, where `cᵢ` = `[(i r₀), (i r₁), …, (i rₙ)]`.
 
-Input     | Output
-----------|------------
-`[[1 2] ` | `[[1 3 5] `
-` [3 4] ` | ` [2 4 6]]`
-` [5 6]]` |
+Input|Output
+:---:|:----:
+1 2<br>3 4<br>5 6 | 1 3 5<br>2 4 6
 
 >     (transpose '[[1, 2], [3, 4], [5, 6]])
 >       ;= [[1, 3, 5], [2, 4, 6]]
@@ -154,7 +152,7 @@ If the elements of `xs` are of different lengths, `transpose` truncates longer a
 
 ### `zip`
 
-`(zip xs0 xs1 ... xsn)` constructs an array of `n + 1`-length arrays. Every `m`th element of the returned array contains the `m`th elements of each `xs0`...`xsn`.
+`(zip xs₀ xs₁ … xsₙ)` constructs an array of `n + 1`-length arrays. Every `m`th element of the returned array contains the `m`th elements of each `xs₀`…`xsₙ`.
 
 >     (zip) ;= []
 >     (zip []) ;= []
@@ -516,13 +514,13 @@ Returns `true` if its argument is the empty array.
 >       ([] (forEach (\x send! 1 x) ([] c1 c2 c3))
 >           (recv! c1) (recv! c2) (recv! c3))) ;= [null, 1, 1, 1]
 
-`(forEach f xs0 xs1 ... xsn)` iterates over all of `xs0`...`xsn` at the same time, passing `n` + 1 arguments to `f`. Iteration stops once the end of the shortest `xs` is reached.
+`(forEach f xs₀ xs₁ … xsₙ)` iterates over all of `xs₀`…`xsₙ` at the same time, passing `n` + 1 arguments to `f`. Iteration stops once the end of the shortest `xs` is reached.
 
 >     (let {c1: (chan!), c2: (chan!), c3: (chan!)}
 >       ([] (forEach (\xy send! y x) ([] c1 c2 c3) '[a b c])
 >           (recv! c1) (recv! c2) (recv! c3))) ;= [null, "a", "b", "c"]
 
-`forEach` does not resolve until every call to `f` has resolved. This behavior is similar to `awaitAll`. `forEach` could be considered equivalent to `(await (apply awaitAll (map f xs0 ... xsn)) null)`, if it were possible to `apply` a macro.
+`forEach` does not resolve until every call to `f` has resolved. This behavior is similar to `awaitAll`. `forEach` could be considered equivalent to `(await (apply awaitAll (map f xs₀ … xsₙ)) null)`, if it were possible to `apply` a macro.
 
 >     (let {chan: (chan!)}
 >       (do (await (forEach (\ await (sleep 100) (send! _ chan)) '[1 2])
@@ -552,7 +550,7 @@ If iteration order is significant, use `forEachSeries` instead.
 >       (do (forEach (\x send! x c) '[1 2 3])
 >           (await (recv! c) (recv! c) (recv! c)))) ;= 3
 
-`(forEachSeries f xs0 xs1 ... xsn)` iterates over all of `xs0`...`xsn` at the same time, passing `n` + 1 arguments to `f`. Iteration stops once the end of the shortest `xs` is reached.
+`(forEachSeries f xs₀ xs₁ … xsₙ)` iterates over all of `xs₀`…`xsₙ` at the same time, passing `n` + 1 arguments to `f`. Iteration stops once the end of the shortest `xs` is reached.
 
 >     (let {c1: (chan!), c2: (chan!), c3: (chan!)}
 >       ([] (forEachSeries (\xy send! y x) ([] c1 c2 c3) '[a b c])
