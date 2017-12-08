@@ -1,6 +1,6 @@
 {
   "name": "jaspr",
-  "version": "0.1.171201",
+  "version": "0.1.171207",
   "description": "JaSPR (JSon PRocessing) is a JSON-based Lisp-like language with async-by-default semantics",
   "main": "dist/src/Repl.js",
   "scripts": {

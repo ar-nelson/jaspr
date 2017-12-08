@@ -2,7 +2,7 @@
 export const prefix = '$'
 
 export const primitiveModule = 'jaspr.primitive'
-export const version = '0.1.171201'
+export const version = '0.1.171207'
 
 export const closure = prefix + 'closure'
 export const code = prefix + 'code'
