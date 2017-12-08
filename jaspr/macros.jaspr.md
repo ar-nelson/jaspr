@@ -1,4 +1,5 @@
-_[Prev: Signals and Error Handling ⇦](signals-errors.jaspr.md) • [Table of Contents](jaspr.jaspr.md) • [⇨ Next: Number Operations](numbers.jaspr.md)_
+[☙ Concurrency and Channels][prev] | [🗏 Table of Contents][toc] | [Number Operations ❧][next]
+:---|:---:|---:
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
 
@@ -42,6 +43,11 @@ These remove one level of parens. For example, `(\ print! _)` becomes `(fn _ (pr
 
 ### `->`
 
+>     (-> 4 (p.add 1) (p.multiply 3)) ;= 15
+>     (-> 4 (p.subtract 1) (p.multiply 3)) ;= 9
+
+>     (-> 1 [] []) ;= [[1]]
+
     macro.->:
     (fn* args
       (assertArgs args "expected one or more arguments"
@@ -55,13 +61,18 @@ These remove one level of parens. For example, `(\ print! _)` becomes `(fn _ (pr
 
 ### `->>`
 
+>     (->> 4 (p.add 1) (p.multiply 3)) ;= 15
+>     (->> 4 (p.subtract 1) (p.multiply 3)) ;= -9
+
+>     (->> 1 [] []) ;= [[1]]
+
     macro.->>:
     (fn* args
       (assertArgs args "expected one or more arguments"
         (if (= 1 (len args))
             (0 args)
             (let {arg: (0 args) f: (1 args) rest: (tl (tl args))}
-              `[->> ~((if (and f (array? f)) snoc []) f arg)
+              `[->> ~(if (and f (array? f)) `[~@f ~arg] `[~f ~arg])
                     ~@rest]))))
 
 ### `\->`
@@ -149,3 +160,10 @@ If `default` is not present, it is `null`.
       λ: \, λx: \x, λy: \y, λz: \z, λxy: \xy, →: ->, ↠: ->>, λ→: \->, λ↠: \->>,
       ⍝: comment
     }
+
+[☙ Concurrency and Channels][prev] | [🗏 Table of Contents][toc] | [Number Operations ❧][next]
+:---|:---:|---:
+
+[toc]: jaspr.jaspr.md
+[prev]: concurrency.jaspr.md
+[next]: numbers.jaspr.md

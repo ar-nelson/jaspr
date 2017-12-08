@@ -1,4 +1,5 @@
-_[Prev: Syntax and Semantics ⇦](syntax.jaspr.md) • [Table of Contents](jaspr.jaspr.md) • [⇨ Next: Concurrency](concurrency.jaspr.md)_
+[☙ Syntax and Semantics][prev] | [🗏 Table of Contents][toc] | [Concurrency ❧][next]
+:---|:---:|---:
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
 
@@ -57,7 +58,7 @@ These are based on the `typeOf` function, which returns a string describing the 
 
 The values `null`, `true`, and `false` are the only reserved keywords in Jaspr's syntax.
 
-Technically, all values in Jaspr can be used as booleans (by `$if`, the only primitive that uses them). All values are either _truthy_ or _falsy_:
+Technically, all values in Jaspr can be used as booleans (by `jaspr.primitive.if`, the only primitive that uses them). All values are either _truthy_ or _falsy_:
 
 - `null`, `false`, `0`, `NaN`, `“”`, `[]`, and `{}` are falsy.
 - All other Jaspr values are truthy.
@@ -558,15 +559,15 @@ Otherwise, `a` and `b` are structurally equal if they are identical (reference/v
 
 Variadic version of `eq?` that returns `true` if all of its arguments are structurally equal to each other, `false` otherwise.
 
->    (= 1 1) ;= true
->    (= 1 2) ;= false
->    (= '[1 2 3] '[1 2 3] '[1 2 3]) ;= true
->    (= '[1 2 3] '[1 2 3] '[1 2 3 4]) ;= false
+>     (= 1 1) ;= true
+>     (= 1 2) ;= false
+>     (= '[1 2 3] '[1 2 3] '[1 2 3]) ;= true
+>     (= '[1 2 3] '[1 2 3] '[1 2 3 4]) ;= false
 
 `=` always returns `true` if it is passed less than 2 arguments.
 
->    (= false) ;= true
->    (=) ;= true
+>     (= false) ;= true
+>     (=) ;= true
 
 See `eq?` for a description of Jaspr's structural equality algorithm.
 
@@ -583,15 +584,15 @@ See `eq?` for a description of Jaspr's structural equality algorithm.
 
 Returns `true` if any of its arguments is not structurally equal to any of the others, `false` otherwise.
 
->    (/= 1 1) ;= false
->    (/= 1 2) ;= true
->    (/= '[1 2 3] '[1 2 3] '[1 2 3]) ;= false
->    (/= '[1 2 3] '[1 2 3] '[1 2 3 4]) ;= true
+>     (/= 1 1) ;= false
+>     (/= 1 2) ;= true
+>     (/= '[1 2 3] '[1 2 3] '[1 2 3]) ;= false
+>     (/= '[1 2 3] '[1 2 3] '[1 2 3 4]) ;= true
 
 `=` always returns `false` if it is passed less than 2 arguments.
 
->    (/= true) ;= false
->    (/=) ;= false
+>     (/= true) ;= false
+>     (/=) ;= false
 
 See `eq?` for a description of Jaspr's structural equality algorithm.
 
@@ -611,3 +612,10 @@ See `eq?` for a description of Jaspr's structural equality algorithm.
       chan?, dynamic!, dynamic?, getDynamic, letDynamic, signalHandler, name,
       eq?, equal?: eq?, equals?: eq?, =, ==: =, ⩵: =, /=, !=: /=, ≠: /=
     }
+
+[☙ Syntax and Semantics][prev] | [🗏 Table of Contents][toc] | [Concurrency ❧][next]
+:---|:---:|---:
+
+[toc]: jaspr.jaspr.md
+[prev]: syntax.jaspr.md
+[next]: concurrency.jaspr.md

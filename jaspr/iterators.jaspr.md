@@ -1,4 +1,6 @@
 
+> This file is incomplete, and is currently unused.
+
 ## Channel Operations
 
 Jaspr defines higher-order functions over channels that correspond almost one-to-one with the higher-order functions over arrays defined in [Array Operations](arrays.jaspr.md). In general, for each array operation `x`, the corresponding channel operation is named `x!`.

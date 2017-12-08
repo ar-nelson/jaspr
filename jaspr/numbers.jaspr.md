@@ -1,4 +1,5 @@
-_[Prev: Macros ⇦](macros.jaspr.md) • [Table of Contents](jaspr.jaspr.md) • [⇨ Next: Array Operations](arrays.jaspr.md)_
+[☙ Macros][prev] | [🗏 Table of Contents][toc] | [Array Operations ❧][next]
+:---|:---:|---:
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
 
@@ -13,6 +14,8 @@ Returns the sum of its arguments. Raises a `BadArgs` error if any of its argumen
 >     (add 1 2 3) ;= 6
 
 The alias `+` is preferred.
+
+---
 
     add:
     (fn* args
@@ -33,12 +36,16 @@ The alias `+` is preferred.
 
 `dec` raises a `BadArgs` error if `n` is not a number.
 
+---
+
     dec: (fn- n (assertArgs (number? n) "not a number"
                             (p.subtract n 1)))
 
 ### `div`
 
 `(div dividend divisor)` returns the quotient of `dividend` and `divisor`. Division by zero returns `NaN`. `div` raises a `BadArgs` error if either of its arguments is not a number.
+
+---
 
     div:
     (fn- dividend divisor
@@ -53,6 +60,8 @@ The alias `+` is preferred.
 >     (inc 3) ;= 4
 
 `inc` throws a `BadArgs` error if `n` is not a number.
+
+---
 
     inc: (fn- n (assertArgs (number? n) "not a number"
                             (p.add n 1)))
@@ -73,6 +82,8 @@ The alias `+` is preferred.
 
 `minus` Raises a `BadArgs` error if it receives 0 arguments or if any of its arguments are not numbers.
 
+---
+
     minus: (fn* args (if (p.is? 1 (len args))
                          (neg (0 args))
                          (apply sub args)))
@@ -82,6 +93,8 @@ The alias `+` is preferred.
 `(mod dividend divisor)` returns the modulus of `dividend` and `divisor`. Modulus by zero returns `NaN`. `mod` raises a `BadArgs` error if either of its arguments is not a number.
 
 The distinction between remainder (`rem`/`%`) and modulus (`mod`) is that the _remainder_ has the same sign as the _dividend_, while the _modulus_ has the same sign as the _divisor_.
+
+---
 
     mod:
     (fn- dividend divisor
@@ -96,6 +109,8 @@ Returns the product of its arguments. Raises a `BadArgs` error if any of its arg
 >     (mul 6 7 -1) ;= -42
 
 The alias `*` or `×` is preferred.
+
+---
 
     mul:
     (fn* args
@@ -116,6 +131,8 @@ Negates its argument. Raises a `BadArgs` error if its argument is not a number.
 
 The alias `-` of `minus`, which has the same functionality when called with one argument, is preferred.
 
+---
+
     neg: (fn- n (assertArgs (number? n) "not a number"
                             (p.negate n)))
 
@@ -123,9 +140,11 @@ The alias `-` of `minus`, which has the same functionality when called with one 
 
 `(product xs)` returns the product of the numbers in the array `xs`.
 
->     ;(product '[2 3 4]) ;= 24
+>     (product '[2 3 4]) ;= 24
 
 `(product xs)` is semantically equivalent to `(apply mul xs)`, but it uses `fold` for better performance on large lists. It raises a `BadArgs` error if `xs` is not an array of numbers.
+
+---
 
     product: (fn- xs (fold (\xy p.multiply x y) 1 xs))
 
@@ -134,6 +153,8 @@ The alias `-` of `minus`, which has the same functionality when called with one 
 `(rem dividend divisor)` returns the remainder of `dividend` and `divisor`. Division by zero returns `NaN`. `rem` raises a `BadArgs` error if either of its arguments is not a number.
 
 The distinction between remainder (`rem`/`%`) and modulus (`mod`) is that the _remainder_ has the same sign as the _dividend_, while the _modulus_ has the same sign as the _divisor_.
+
+---
 
     rem:
     (fn- dividend divisor
@@ -150,6 +171,8 @@ Returns the (right-associative) difference of its arguments. Raises a `BadArgs` 
 
 The alias `-` of `minus`, which has the same functionality when called with more than one argument, is preferred.
 
+---
+
     sub:
     (fn* args
       (case= (len args)
@@ -164,9 +187,11 @@ The alias `-` of `minus`, which has the same functionality when called with more
 
 `(sum xs)` returns the sum of the numbers in the array `xs`.
 
->     ;(sum '[2 3 4]) ;= 9
+>     (sum '[2 3 4]) ;= 9
 
 `(sum xs)` is semantically equivalent to `(apply add xs)`, but it uses `fold` for better performance on large lists. It raises a `BadArgs` error if `xs` is not an array of numbers.
+
+---
 
     sum: (fn- xs (fold (\xy p.add x y) 0 xs))
 
@@ -211,6 +236,8 @@ Less-than operator. Returns `true` if all of its arguments are ordered from leas
 
 `<` raises a `BadArgs` error if any of its arguments are not numbers.
 
+---
+
     <:
     (fn* args
       (assertArgs (p.< 1 (len args)) "expected 2 or more arguments"
@@ -232,6 +259,8 @@ Less-than-or-equal operator. Returns `true` if all of its arguments are ordered 
 >     (<= 5 4 3 2 1) ;= false
 
 `<=` raises a `BadArgs` error if any of its arguments are not numbers.
+
+---
 
     <=:
     (fn* args
@@ -255,6 +284,8 @@ Greater-than operator. Returns `true` if all of its arguments are ordered from g
 
 `>` raises a `BadArgs` error if any of its arguments are not numbers.
 
+---
+
     >:
     (fn* args
       (assertArgs (p.< 1 (len args)) "expected 2 or more arguments"
@@ -277,6 +308,8 @@ Greater-than-or-equal operator. Returns `true` if all of its arguments are order
 
 `>=` raises a `BadArgs` error if any of its arguments are not numbers.
 
+---
+
     >=:
     (fn* args
       (assertArgs (p.< 1 (len args)) "expected 2 or more arguments"
@@ -288,11 +321,42 @@ Greater-than-or-equal operator. Returns `true` if all of its arguments are order
 
 ### `max`
 
-    ; TODO: Define max
+    max:
+    (fn* ns
+      (case= (len ns)
+        0 0
+        1 (0 ns)
+        2 (let {a:(0 ns) b:(1 ns)}
+            (if (> a b) a b))
+        (let {half: (floor (div (len ns) 2))}
+          (max (apply max (p.arraySlice 0 half ns))
+               (apply max (p.arraySlice half (len ns) ns))))))
 
 ### `min`
 
-    ; TODO: Define min
+    min:
+    (fn* ns
+      (case= (len ns)
+        0 0
+        1 (0 ns)
+        2 (let {a:(0 ns) b:(1 ns)}
+            (if (< a b) a b))
+        (let {half: (floor (div (len ns) 2))}
+          (min (apply min (p.arraySlice 0 half ns))
+               (apply min (p.arraySlice half (len ns) ns))))))
+
+### `kronecker`
+
+The [Kronecker delta](https://en.wikipedia.org/wiki/Kronecker_delta) function _δ_. `(kronecker i j)` returns `1` if `i` = `j`, `0` otherwise.
+
+>     (kronecker 42 42) ;= 1
+>     (kronecker 1 2) ;= 0
+
+The preferred alias of this function is `δ`, which allows `(δ i j)` to be used as shorthand for `(if (= i j) 1 0)`.
+
+---
+
+    kronecker: (fn- i j (if (= i j) 1 0))
 
 ## Predicates and Rounding
 
@@ -343,15 +407,23 @@ Greater-than-or-equal operator. Returns `true` if all of its arguments are order
 
     $export: {
       add sub mul neg div rem mod minus pow inc dec sum product < <= > >=
-      min max pow sqrt cbrt log log2 log10
+      min max kronecker pow sqrt cbrt log log2 log10
       finite? infinite? NaN? pos? neg? even? odd? zero? integer?
       floor ceil round abs sign
       sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh hypot
       pi e sqrt2 sqrt1/2 ln2 ln10 log2e log10e 
       
-      +:add *:mul ×:mul ✕:mul -:minus −:minus ÷:div %:rem ↑:up ↓:dn
+      +:add *:mul ×:mul ✕:mul -:minus −:minus ÷:div %:rem ↑:inc ↓:dec
       ∑:sum ∏:product √:sqrt ∛:cbrt expt:pow =<:<= ≤:<= ≥:>= ∞?:infinite?
       ⌊:floor ⌈:ceil |:abs ±:sign ∟:hypot ∠:atan2 π:pi √2:sqrt2 √½:sqrt1/2
+      δ:kronecker
 
       ➕:add ➖:minus ✖:mul ➗:div
     }
+
+[☙ Macros][prev] | [🗏 Table of Contents][toc] | [Array Operations ❧][next]
+:---|:---:|---:
+
+[toc]: jaspr.jaspr.md
+[prev]: macros.jaspr.md
+[next]: arrays.jaspr.md

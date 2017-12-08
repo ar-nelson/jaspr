@@ -91,9 +91,11 @@ const functions: {[name: string]: NativeFn} = {
   'chanMake!': new NativeSyncFn(function() { return Chan.make() }),
   'chan?': new NativeSyncFn(function(it) { return Chan.isChan(it) }),
   'chanSend!': new NativeAsyncFn(function([msg, chan], cb) {
-    const cancel =
-      (<Chan>(<any>chan)[magicSymbol]).send(msg, x => cb(undefined, x))
-    if (cancel) this.onCancel(cancel)
+    resolveFully(msg, (err, msg) => {
+      const cancel =
+        (<Chan>(<any>chan)[magicSymbol]).send(msg, x => cb(undefined, x))
+      if (cancel) this.onCancel(cancel)
+    })
   }),
   'chanRecv!': new NativeAsyncFn(function([chan], cb) {
     const cancel = (<Chan>(<any>chan)[magicSymbol]).recv(cb)

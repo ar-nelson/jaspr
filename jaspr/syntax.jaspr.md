@@ -1,4 +1,5 @@
-_[Table of Contents](jaspr.jaspr.md) • [⇨ Next: Data Types](data-types.jaspr.md)_
+☙ Table of Contents | [🗏 Table of Contents][toc] | [Data Types ❧][next]
+:---|:---:|---:
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
 
@@ -530,3 +531,9 @@ If a macro uses a string as a marker to separate parts of an array (for example,
 
       ⚑:raise 🏴:raise 🏷:let &&: and ||: or
     }
+
+☙ Table of Contents | [🗏 Table of Contents][toc] | [Data Types ❧][next]
+:---|:---:|---:
+
+[toc]: jaspr.jaspr.md
+[next]: data-types.md

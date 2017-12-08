@@ -1,62 +1,142 @@
+[☙ Object Operations][prev] | [🗏 Table of Contents][toc] | [Pattern Matching ❧][next]
+:---|:---:|---:
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
 
-### `char`
+# String Operations
 
-`(char n s)` returns the `n`th Unicode code point in the string `s`, as a one-character string.
+    ; TODO: Implement string operations
 
-`char` throws an exception if it receives too few arguments, if `n` is not an integer or is out of bounds, or if `s` is not a string.
+## Basic String Operations
 
-The index `n` may be negative; a negative index counts back from the end of the string.
+### `str`
 
-    char:
-      (closure {}
-        ($if (integer? (0 $args))
-             ($if (string? (1 $args))
-                  ($if ($less ))
-                                ($unicode-char-at (0 $args) (1 $args))
-                                (throw {err: "second argument must be a string",
-                                        fn: "char", args: $args}))
-                           (throw {err: "first argument must be an integer",
-                                   fn: "char", args: $args}))
+### `toJSON`
 
-### `code-point`
+### `fromJSON`
 
-`(code-point n s)` returns the `n`th Unicode code point in the string `s`, as a number.
+### `emptyString?`
 
-`code-point` throws an exception if it receives too few arguments, if `n` is not an integer or is out of bounds, or if `s` is not a string.
+### `substring?`
 
-The index `n` may be negative; a negative index counts back from the end of the string.
+### `startWith?`
 
-    code-point: (closure {} $unicode-code-point-at (0 $args) (1 $args)))
+### `endsWith?`
 
-### `unit`
+### `replace`
 
-`(unit n s)` returns the `n`th UTF-16 code unit in the string `s`, as a one-character string. If the code unit is part of a surrogate pair (and therefore not a valid Unicode character), `unit` returns a placeholder character from the Unicode Private Use area.
+## String Elements
 
-`unit` throws an exception if it receives too few arguments, if `n` is not an integer or is out of bounds, or if `s` is not a string.
+### Chars
 
-The index `n` may be negative; a negative index counts back from the end of the string.
+#### `char`
 
-    unit: (closure {} ($native-char-at (0 $args) (1 $args)))
+#### `chars`
 
-### `byte`
+#### `toChars`
 
-    byte: (not-implemented “byte”)
+#### `fromChars`
 
-    str to-json from-json empty-string? empty-str?:empty-string?
-    print! newline! print-line! println!:print-line! ⏎!:newline!
+#### `iterChars!`
 
-    byte unit char code-point bytes units chars code-points:chars
-    to-bytes to-units to-chars to-code-points
-    from-bytes from-units from-chars from-code-points lines words
-    for-each-byte for-each-unit for-each-char for-each-code-point
-    slice-bytes slice-units slice-chars
-    normalize-NFD normalize-NFC normalize-NFKD normalize-NFKC
-    upper-case lower-case title-case
-    starts-with? ends-with? string-contains? str-contains?:string-contains?
-    string-replace str-replace:string-replace trim
-    unit-index-of last-unit-index-of char-index-of: last-char-index-of:
-    unit-indexes-of unit-indices-of:unit-indexes-of
-    char-indexes-of char-indices-of:char-indexes-of
-    split-string split-str:split-string
+#### `sliceChars`
+
+#### `charIndexOf`
+
+#### `lastCharIndexOf`
+
+#### `charIndexesOf`
+
+### Code Points
+
+#### `codePoint`
+
+#### `codePoints`
+
+#### `toCodePoints`
+
+#### `fromCodePoints`
+
+#### `iterCodePoints!`
+
+### Bytes
+
+#### `byte`
+
+#### `bytes`
+
+#### `toBytes`
+
+#### `fromBytes`
+
+#### `iterBytes!`
+
+#### `sliceBytes`
+
+#### `byteIndexOf`
+
+#### `lastByteIndexOf`
+
+#### `byteIndexesOf`
+
+### Units
+
+#### `unit`
+
+#### `units`
+
+#### `toUnits`
+
+#### `fromUnits`
+
+#### `iterUnits!`
+
+#### `sliceUnits`
+
+#### `unitIndexOf`
+
+#### `lastUnitIndexOf`
+
+#### `unitIndexesOf`
+
+## Unicode Operations
+
+### `uppercase`
+
+### `lowercase`
+
+### `trim`
+
+### `lines`
+
+### `words`
+
+### `normalizeNFD`
+
+### `normalizeNFC`
+
+### `normalizeNFKD`
+
+### `normalizeNFKC`
+
+## Exports
+
+     $export: {
+       str toJSON fromJSON emptyString? substring? startWith? endsWith? replace
+       char chars toChars fromChars iterChars! sliceChars charIndexOf
+       lastCharIndexOf charIndexesOf
+       codePoint codePoints toCodePoints fromCodePoints iterCodePoints!
+       byte bytes toBytes fromBytes iterBytes! sliceBytes byteIndexOf
+       lastByteIndexOf byteIndexesOf
+       unit units toUnits fromUnits iterUnits! sliceUnits unitIndexOf
+       lastUnitIndexOf unitIndexesOf
+       uppercase lowercase trim lines words
+       normalizeNFD normalizeNFC normalizeNFKD normalizeNFKC
+     }
+
+[☙ Object Operations][prev] | [🗏 Table of Contents][toc] | [Pattern Matching ❧][next]
+:---|:---:|---:
+
+[toc]: jaspr.jaspr.md
+[prev]: objects.jaspr.md
+[next]: pattern-matching.jaspr.md

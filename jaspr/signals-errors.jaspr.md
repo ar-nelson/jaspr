@@ -1,4 +1,5 @@
-_[Prev: Concurrency and Channels ⇦](concurrency.jaspr.md) • [Table of Contents](jaspr.jaspr.md) • [⇨ Next: Macros](macros.jaspr.md)_
+[☙ Pattern Matching][prev] | [🗏 Table of Contents][toc] | [Iterators and Pipelines ❧][next]
+:---|:---:|---:
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
 
@@ -51,10 +52,8 @@ The primary use of signals in Jaspr is to raise and handle _errors_. A Jaspr err
 
 If `handler` raises a signal, that signal is handled by `catchWith`'s parent signal handler.
 
->     ; TODO: Fix this test     
->
->     ;(catchWith [] (catchWith (fn- x (raise 'outer))
->     ;                         (raise 'inner))) ;= [“outer”]
+>     (catchWith [] (catchWith (fn- x (raise 'outer))
+>                              (raise 'inner))) ;= [“outer”]
 
 `catchWith` only resolves once its return value has _deeply_ resolved, to guarantee that uncatchable signals aren't raised after `catchWith` has already returned. However, if `catchWith` spawns fibers that aren't incorporated into its return value---for example, with `do`---and those fibers are still running when `catchWith` resolves, they will be canceled.
 
@@ -105,3 +104,10 @@ The pattern-matching `resume` macro is better suited than `resumeWith` to most u
 ## Exports
 
     $export: {catchWith, resumeWith}
+
+[☙ Pattern Matching][prev] | [🗏 Table of Contents][toc] | [Iterators and Pipelines ❧][next]
+:---|:---:|---:
+
+[toc]: jaspr.jaspr.md
+[prev]: pattern-matching.jaspr.md
+[next]: iterators.jaspr.md

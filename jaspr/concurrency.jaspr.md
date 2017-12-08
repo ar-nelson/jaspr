@@ -1,4 +1,5 @@
-_[Prev: Data Types ⇦](data-types.jaspr.md) • [Table of Contents](jaspr.jaspr.md) • [⇨ Next: Signals and Error Handling](signals-errors.jaspr.md)_
+[☙ Data Types][prev] | [🗏 Table of Contents][toc] | [Macros ❧][next]
+:---|:---:|---:
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
 
@@ -55,6 +56,8 @@ TODO: Implement `onCancel`.
 >     (do 1 2) ;= 2
 >     (do (never) 42) ;= 42
 
+---
+
     do: (fn* exprs (if exprs (-1 exprs) null))
 
 ### `await`
@@ -64,6 +67,8 @@ TODO: Implement `onCancel`.
 >     (await 1 2) ;= 2
 
 `await` only waits for the top level of each value to resolve; e.g., if one of the expressions returns an array, `await` may continue to the next expression even though the elements of the array have not fully resolved.
+
+---
 
     macro.await:
     (fn* exprs
@@ -78,6 +83,8 @@ TODO: Implement `onCancel`.
 >     (awaitAll 1 2) ;= 2
 
 `awaitAll` only waits for the top level of each value to resolve; e.g., if one of the expressions returns an array, `awaitAll` may return even though the elements of the array have not fully resolved.
+
+---
 
     macro.awaitAll:
     (fn* exprs
@@ -107,11 +114,13 @@ Canceling a branch of a choice junction also cancels all branches of any choice 
 >                      (sleep 100))
 >              (do (send! 'ok ch) (recv! ch)))) ;= “ok”
 
+---
+
     macro.choice: (fn* exprs `[p.junction ~@exprs])
 
 ## Channels
 
-Channels are how Jaspr handles both messaging between fibers and mutable state. They are based on channels from Go, and function similarly: a channel can send and receive messages; sending and receiving both block until the sent message is received.
+Channels are how Jaspr handles both mutable state and messaging between fibers. They are based on channels from Go, and function similarly: all channels can both send and receive messages, and sending and receiving both block until the sent message is received.
 
 Channels are the only mutable values in Go. They are [magic objects](data-types.jaspr.md#magic-objects) with the property `$chan: true`. Channels are not referentially transparent; all channels are structurally just `{$chan: true}`, but two channels with the same structure are not necessarily equal. Copying a channel with object operations like `withKey` or `withoutKey` will produce a new object that is no longer a channel.
 
@@ -119,18 +128,36 @@ Values must be fully resolved before they can be sent on a channel. This prevent
 
 ### `chan!`
 
-`(chan!)` creates a new channel. It takes an optional argument, the name of the channel: `(chan! “foo”)` returns a channel named `“foo”`. Channel names are not unique identifiers; they are just an extra property `$name` on the channel object for debugging purposes.
+`(chan!)` creates a new channel. A channel is a magic object with the key `$chan: true`.
 
-    chan!: (fn* args (if args (withKey “$name” (p.toString (0 args)) (p.chanMake!))
-                              (p.chanMake!)))
+>     ('$chan (chan!)) ;= true
+
+Every call to `chan!` creates a unique object, even though all channels are structurally identical. Creating an updated copy of a channel (e.g., by using `put` or `update`) will result in a non-magic object that is not a channel.
+
+>     (= (chan!) (chan!)) ;= false
+
+---
+
+    chan!: (fn- (p.chanMake!))
 
 ### `send!`
 
 `(send! msg chan)` sends `msg` on the channel `chan`, then blocks until either `msg` is received or `chan` is closed. It returns `true` if `msg` was successfully received, `false` if `chan` was closed.
 
+>     (let {c: (chan!)} (do (recv! c) (send! 42 c))) ;= true
+>     (let {c: (chan!)} (await (close! c) (send! 42 c))) ;= false
+
 Unlike other Jaspr functions, `send!` is strict, not lazy. If `msg` or any element of `msg` is unresolved, `send!` blocks until `msg` has finished resolving. While `msg` is unresolved, the send has technically not yet occurred, so `recv!` calls will not yet be able to receive `msg`.
 
+>     (let {c: (chan!)}
+>       (do (send! ([] 1 (await (sleep 200) 2)) c)
+>           (send! 42 c)
+>           (await (recv! c)
+>                  (recv! c)))) ;= [1, 2]
+
 `send!` raises a `BadArgs` error if `chan` is not a channel.
+
+---
 
     send!: (fn- msg chan (assertArgs (chan? chan) “not a channel”
                                      (p.chanSend! msg chan)))
@@ -139,21 +166,41 @@ Unlike other Jaspr functions, `send!` is strict, not lazy. If `msg` or any eleme
 
 `(recv! chan)` blocks until a message is received on the channel `chan`, then returns that message.
 
-`recv!` raises a `BadArgs` error is `chan` is not a channel, or if `chan` is closed. Closing a channel while a `recv!` is waiting will cause the `recv!` call to raise a `ChanClosed` error.
+>     (let {c: (chan!)} (do (send! "foo" c) (recv! c))) ;= "foo"
+
+`recv!` raises a `BadArgs` error if `chan` is not a channel, or a `ChanClosed` error if `chan` is closed before or during the `recv!` call.
+
+---
 
     recv!: (fn- chan (assertArgs (chan? chan) “not a channel”
                                  (p.chanRecv! chan)))
 
 ### `close!`
 
-Closes a channel. Returns `true` if the channel was not yet closed, or `false` if the channel was already closed (and the `close!` call did nothing). Raises a `BadArgs` error if its argument is not a channel.
+Closes a channel. Returns `true` if the channel was not yet closed, or `false` if the channel was already closed (and the `close!` call did nothing).
+
+>     (let {c: (chan!)} (close! c)) ;= true
+>     (let {c: (chan!)} (await (close! c) (close! c))) ;= false
+
+Attempting to send on a closed channel does nothing and returns immediately. Attempting to receive on a closed channel raises a `ChanClosed` error.
+
+`close!` raises a `BadArgs` error if its argument is not a channel.
+
+---
 
     close!: (fn- chan (assertArgs (chan? chan) “not a channel”
                                   (p.chanClose! chan)))
 
 ### `closed?`
 
-Returns a boolean indicating whether its argument, a channel, is closed. Raises a `BadArgs` error if its argument is not a channel.
+Returns a boolean indicating whether its argument, a channel, is closed.
+
+>     (let {c: (chan!)} (closed? c)) ;= false
+>     (let {c: (chan!)} (await (close! c) (closed? c))) ;= true
+
+`closed?` raises a `BadArgs` error if its argument is not a channel.
+
+---
 
     closed?: (fn- chan (assertArgs (chan? chan) “not a channel”
                                    (p.chanClosed? chan)))
@@ -210,6 +257,8 @@ Returns a boolean indicating whether its argument, a channel, is closed. Raises 
 
 ### Refs
 
+    ; TODO: Test and document refs
+
 #### `ref!`
 
     refServer!:
@@ -246,6 +295,8 @@ Returns a boolean indicating whether its argument, a channel, is closed. Raises 
         (send! {set: value} ('chan ref))))
 
 ### Queues
+
+    ; TODO: Test and document queues
 
 #### `queue!`
 
@@ -285,10 +336,17 @@ Returns a boolean indicating whether its argument, a channel, is closed. Raises 
     $export: {
       never sleep do await awaitAll inParallel:awaitAll inSeries:await choice
       chan! send! recv! close! closed?
-
+      
       combine! distribute! drain! roundRobin! sendAll!
 
       ref! ref? get! set! queue! queue? enqueue! dequeue!
 
-      ⛔:never 💤:sleep 📩:send! 📨:recv!
+      ⛔:never 💤:sleep ∥:do ∦:await ⋕:awaitAll ⏛:choice 📩:send! 📨:recv!
     }
+
+[☙ Data Types][prev] | [🗏 Table of Contents][toc] | [Macros ❧][next]
+:---|:---:|---:
+
+[toc]: jaspr.jaspr.md
+[prev]: data-types.jaspr.md
+[next]: macros.jaspr.md

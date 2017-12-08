@@ -1,3 +1,5 @@
+[☙ String Operations][prev] | [🗏 Table of Contents][toc] | [Signals and Error Handling ❧][next]
+:---|:---:|---:
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
 
@@ -21,59 +23,58 @@ Array patterns consisting of _n_ elements, then the string `“...”`, then a s
 
 Object patterns match objects containing at least the same keys as the pattern, after matching the values of the pattern to the corresponding values of the object.
 
-All other values are not legal patterns; using an illegal pattern in a pattern-matching macro will throw an exception at macro expansion time.
+All other values are not legal patterns; using an illegal pattern in a pattern-matching macro will raise a `BadPattern` error at macro expansion time.
 
 ### Pattern Code Generation Functions
 
-The pattern-matching macros use two internal, unexported functions to generate pattern-matching code: `make-pattern-test` and `make-pattern-bindings`.
+The pattern-matching macros use two internal, unexported functions to generate pattern-matching code: `makePatternTest` and `makePatternBindings`.
 
-    make-pattern-test:
-      (fn- pat val
-        (if (or (null? pat) (boolean? pat) (number? pat))
-              `[$equals ~val ~pat]
+    makePatternTest:
+    (fn- pat val
+      (if (or (null? pat) (boolean? pat) (number? pat))
+            `[p.is? ~val ~pat]
+          (string? pat)
+            true
+          (object? pat)
+            `[and (object? ~val)
+                  ~@(map (\x makePatternTest (x pat) ([] (quote x) val))
+                          (keys pat))]
+          (and (= 2 (len pat)) (emptyString? (0 pat)))
+            `[p.is? ~val ~(0 pat)]
+          (and (> 1 (len pat)) (= “...” (-2 pat)) (string? (-1 pat)))
+            `[and (array? ~val)
+                  (>= (len ~val) ~(sub (len pat) 2))
+                  ~@(makeArray
+                      (\x makePatternTest (x pat) ([] (quote x) val))
+                      (sub (len pat) 2)]
+          (none? (\ or (= “...” _) (emptyString? _)) pat)
+            `[and (array? ~val)
+                  ~@(makeArray
+                      (\x makePatternTest (x pat) ([] (quote x) val))
+                      (len pat))]
+          (raise {err: “BadPattern”, pattern: pat}))))
+
+    makePatternBindings:
+    (fn- pat val
+      (let {
+        recur: (\->> (map (\x makePatternBindings (x pat) ([] (quote x) val)))
+                     (apply merge))
+      } (if (or (null? pat) (boolean? pat) (number? pat))
+              {}
             (string? pat)
-              true
+              (if (or (emptyString? pat) (substring? “.” pat))
+                  (raise {err: “BadPattern”, pattern: pat})
+                  ({} pat val))
             (object? pat)
-              `[and (object? ~val)
-                    ~@(map (\x make-pattern-test (x pat) ([] (quote x) val))
-                           (keys pat))]
-            (and (= 2 (len pat)) (= “” (0 pat)))
-              `[$equals ~val ~(0 pat)]
+              (recur (keys pat))
+            (and (= 2 (len pat)) (emptyString? (0 pat)))
+              {}
             (and (> 1 (len pat)) (= “...” (-2 pat)) (string? (-1 pat)))
-              `[and (array? ~val)
-                    (>= (len ~val) ~(- (len pat) 2))
-                    ~@(make-array
-                        (\x make-pattern-test (x pat) ([] (quote x) val))
-                        (- (len pat) 2)]
-            (none? (\ or (= “...” _) (= “” _)) pat)
-              `[and (array? ~val)
-                    ~@(make-array
-                        (\x make-pattern-test (x pat) ([] (quote x) val))
-                        (len pat))]
-            (throw {err: “not a legal pattern”, pattern: pat}))))
-
-    make-pattern-bindings:
-      (fn- pat val
-        (let {
-          recur:
-            (\->> (map (\x make-pattern-bindings (x pat) ([] (quote x) val)))
-                  (apply merge))
-        } (if (or (null? pat) (boolean? pat) (number? pat))
-                {}
-              (string? pat)
-                (if (or (empty-str? pat) (str-contains? “.” pat))
-                    (throw {err: “not a legal pattern”, pattern: pat})
-                    ({} pat val))
-              (object? pat)
-                (recur (keys pat))
-              (and (= 2 (len pat)) (= “” (0 pat)))
-                {}
-              (and (> 1 (len pat)) (= “...” (-2 pat)) (string? (-1 pat)))
-                (->> (indexes pat)
-                     (drop-right 2)
-                     recur
-                     (with-key (-1 pat) `[drop ~(- (len pat) 2) ~val]))
-              (recur (indexes pat)))))
+              (->> (indexes pat)
+                   (drop -2)
+                   recur
+                   (withKey (-1 pat) `[drop ~(sub (len pat) 2) ~val]))
+            (recur (indexes pat)))))
 
 ## `case`
 
@@ -111,23 +112,23 @@ The pattern-matching macros use two internal, unexported functions to generate p
 ---
 
     macro.case:
-      (fn* exprs
-        (let {
-          val-expr: (hd exprs),
-          use-let: (or (array? val-expr) (object? val-expr)),
-          val: (if use-let (gensym!) val-expr),
-          clauses: (->> (tl exprs)
-                        (chunk 2)
-                        (flat-map (fn- pair
-                          (let {pat: (0 pair), expr: (1 pair)}
-                            `[~(make-pattern-test pat val)
-                              (let ~(make-pattern-bindings pat val) ~expr)])))),
-          if-expr: `[if ~@clauses (throw {
-                      err: “no pattern matched value”,
-                      fn: “case”,
-                      val: ~val
-                    })]
-        } (if use-let `[let ~({} val val-expr) ~if-expr] if-expr)))
+    (fn* exprs
+      (let {
+        valExpr: (hd exprs),
+        useLet: (or (array? valExpr) (object? valExpr)),
+        val: (if useLet (gensym!) valExpr),
+        clauses: (->> (tl exprs)
+                      (chunk 2)
+                      (mapcat (fn- pair
+                        (let {pat: (0 pair), expr: (1 pair)}
+                          `[~(makePatternTest pat val)
+                            (let ~(makePatternBindings pat val) ~expr)])))),
+        ifExpr: `[if ~@clauses (raise {
+                    err: “NoMatch”,
+                    fn: “case”,
+                    val: ~val
+                  })]
+      } (if useLet `[let ~({} val valExpr) ~ifExpr] ifExpr)))
 
 ## `fn`
 
@@ -140,18 +141,19 @@ The pattern-matching macros use two internal, unexported functions to generate p
 >        . 3 'c) 2) ;= “b”
 >
 >     (let {
->       recursive-sum: (fn [] 0
->                        . [x … xs] (+ x (recursive-sum xs)))
->     } (recursive-sum '[1 2 3 4])) ;= 10
+>       recursiveSum: (fn [] 0
+>                       . [x … xs] (+ x (recursiveSum xs)))
+>     } (recursiveSum '[1 2 3 4])) ;= 10
 
 ---
 
     macro.fn:
-      (fn* args
-        `[closure {} (case $args
-           ~@(flat-map (fn- pat `[~(quote (init pat)) ~(last pat)])
-                       (split “.” args))
-           args (throw {err: “no pattern match for arguments”, args}))])
+    (fn* args
+      `[closure {} (case $args
+         ~@(mapcat (fn- pat `[~(quote (init pat)) ~(last pat)])
+                    (split “.” args))
+         args (raise {
+           err: “BadArgs”, why: “no pattern match for arguments”, args}))])
 
 ## `let*`
 
@@ -181,12 +183,20 @@ Unlike `let`, `let*` does not allow recursive definitions.
 ---
 
     macro.let*:
-      (fn body body
-        . pat val … rest
-            `[case ~val ~pat (let* ~@rest)
-                        _ (throw {
-                            err: “value did not match pattern”,
-                            fn: “let*”,
-                            pattern: ~(quote pat),
-                            value: ~(quote val)
-                          })])
+    (fn body body
+      . pat val … rest
+          `[case ~val
+              ~pat (let* ~@rest)
+              _ (raise { err: “NoMatch”, fn: “let*”,
+                         pattern: ~(quote pat), value: ~(quote val) })])
+
+## Exports
+
+    $export: {case, fn, let*}
+
+[☙ String Operations][prev] | [🗏 Table of Contents][toc] | [Signals and Error Handling ❧][next]
+:---|:---:|---:
+
+[toc]: jaspr.jaspr.md
+[prev]: strings.jaspr.md
+[next]: signals-errors.jaspr.md
