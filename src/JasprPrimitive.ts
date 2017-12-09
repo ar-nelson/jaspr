@@ -16,6 +16,7 @@ import {currentSchema, Module} from './Module'
 import {NativeFn, NativeSyncFn, NativeAsyncFn} from './NativeFn'
 import Chan from './Chan'
 import * as Names from './ReservedNames'
+import prettyPrint from './PrettyPrint'
 import * as _ from 'lodash'
 import {expect, AssertionError} from 'chai'
 const unicodeLength = require('string-length')
@@ -61,9 +62,11 @@ const functions: {[name: string]: NativeFn} = {
   'gensym!': new NativeSyncFn(function(name?) {
     return this.gensym(name ? ''+name : undefined)
   }),
-  'print!': new NativeAsyncFn(function([str], cb) {
-    console.log(str)
-    cb(undefined, null)
+  'inspect!': new NativeAsyncFn(function([x], cb) {
+    resolveFully(x, (err, x) => {
+      console.log(prettyPrint(x))
+      cb(undefined, x)
+    })
   }),
   sleep: new NativeAsyncFn(function([ms], cb) {
     setTimeout(cb, ms, null)
@@ -179,11 +182,11 @@ const functions: {[name: string]: NativeFn} = {
   }),
   stringNativeIndexOf: new NativeSyncFn(function(needle, haystack, start) {
     return String.prototype.indexOf.call(
-      ''+(<any>needle), ''+(<any>haystack), (<any>start)|0)
+      ''+(<any>haystack), ''+(<any>needle), (<any>start)|0)
   }),
   stringNativeLastIndexOf: new NativeSyncFn(function(needle, haystack, start) {
     return String.prototype.lastIndexOf.call(
-      ''+(<any>needle), ''+(<any>haystack), (<any>start)|0)
+      ''+(<any>haystack), ''+(<any>needle), (<any>start)|0)
   }),
   stringNativeLength: new NativeSyncFn(function(str) { return (''+(<any>str)).length }),
   stringUnicodeLength: new NativeSyncFn(function(str) { return unicodeLength(str) }),

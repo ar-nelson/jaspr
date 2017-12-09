@@ -1,3 +1,6 @@
+🗏 Table of Contents | [Data Types ❧][next]
+:---:|---:
+
 # Jaspr
 
 Jaspr is a highly concurrent, dynamically-typed functional programming language based on Lisp and JSON. It is especially well suited to processing JSON data and creating/consuming JSON APIs.
@@ -6,7 +9,7 @@ This document is both the documentation for the Jaspr programming language and a
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
     $module: jaspr
-    $version: 0.1.171207
+    $version: 0.1.171209
     $author: “Adam R. Nelson <adam@nels.onl>”
 
 ## Literate Code Blocks
@@ -49,10 +52,17 @@ This index file does not contain any Jaspr code; the standard library is defined
       arrays.jaspr.md,
       objects.jaspr.md,
       strings.jaspr.md,
-      //pattern-matching.jaspr.md,
+      pattern-matching.jaspr.md,
       signals-errors.jaspr.md,
       //iterators.jaspr.md,
       //sorting.jaspr.md,
       //io.jaspr.md,
       //modules.jaspr.md
     ]
+
+---
+
+🗏 Table of Contents | [Data Types ❧][next]
+:---:|---:
+
+[next]: data-types.jaspr.md

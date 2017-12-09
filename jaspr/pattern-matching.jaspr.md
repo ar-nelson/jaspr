@@ -37,22 +37,24 @@ The pattern-matching macros use two internal, unexported functions to generate p
             true
           (object? pat)
             `[and (object? ~val)
+                  (hasKeys? ~@(map quote (keys pat)) ~val)
                   ~@(map (\x makePatternTest (x pat) ([] (quote x) val))
-                          (keys pat))]
-          (and (= 2 (len pat)) (emptyString? (0 pat)))
-            `[p.is? ~val ~(0 pat)]
-          (and (> 1 (len pat)) (= “...” (-2 pat)) (string? (-1 pat)))
+                         (keys pat))]
+          (and (= (len pat) 2) (emptyString? (0 pat)))
+            `[= ~val ~pat]
+          (and (>= (len pat) 2) (= “...” (-2 pat)) (string? (-1 pat)))
             `[and (array? ~val)
                   (>= (len ~val) ~(sub (len pat) 2))
                   ~@(makeArray
                       (\x makePatternTest (x pat) ([] (quote x) val))
-                      (sub (len pat) 2)]
+                      (sub (len pat) 2))]
           (none? (\ or (= “...” _) (emptyString? _)) pat)
             `[and (array? ~val)
+                  (= (len ~val) ~(len pat))
                   ~@(makeArray
                       (\x makePatternTest (x pat) ([] (quote x) val))
                       (len pat))]
-          (raise {err: “BadPattern”, pattern: pat}))))
+          (raise {err: “BadPattern”, pattern: pat})))
 
     makePatternBindings:
     (fn- pat val
@@ -67,9 +69,9 @@ The pattern-matching macros use two internal, unexported functions to generate p
                   ({} pat val))
             (object? pat)
               (recur (keys pat))
-            (and (= 2 (len pat)) (emptyString? (0 pat)))
+            (and (= (len pat) 2) (emptyString? (0 pat)))
               {}
-            (and (> 1 (len pat)) (= “...” (-2 pat)) (string? (-1 pat)))
+            (and (>= (len pat) 2) (= “...” (-2 pat)) (string? (-1 pat)))
               (->> (indexes pat)
                    (drop -2)
                    recur
@@ -84,28 +86,40 @@ The pattern-matching macros use two internal, unexported functions to generate p
 >       0 “no”
 >       1 “yes”
 >       1 “no”) ;= “yes”
->
+
 >     (case 42 x x) ;= 42
->
+
+>     (case '[42] [x] x) ;= 42
+
+>     (case “bar”
+>       “foo” “no”
+>       “bar” “yes”
+>       “baz” “no”) ;= “yes”
+
 >     (case '[1 2 3]
 >       []        “no”
 >       [1 2 3 4] “no”
 >       [1 x y]   `[~x ~y]) ;= [2, 3]
->
+
 >     (case '[1 2 3]
 >       [x … xs] `[~x ~xs]) ;= [1, [2, 3]]
->
+
 >     (case []
 >       [x … xs] “no”
 >       []       “yes”) ;= “yes”
->
+
 >     (case {a: 1, b: 2}
 >       {b c} “no”
 >       {a b} `[~a ~b]) ;= [1, 2]
->
+
 >     (case {a: 1, b: 2}
 >       {a}   “yes”
 >       {a b} “no”) ;= “yes”
+
+>     (case {a: 1, b: 2}
+>       {a: 2 b}    “no”
+>       {a: 1 b: 3} “no”
+>       {a: 1 b}    “yes”) ;= “yes”
 
 `case` throws an exception at macro expansion time if it has an even number of arguments or if one of `pat₀`…`patₙ` is not a legal pattern; it throws an exception at runtime if no pattern matches `x`.
 
@@ -125,7 +139,7 @@ The pattern-matching macros use two internal, unexported functions to generate p
                             (let ~(makePatternBindings pat val) ~expr)])))),
         ifExpr: `[if ~@clauses (raise {
                     err: “NoMatch”,
-                    fn: “case”,
+                    fn: ~(myName),
                     val: ~val
                   })]
       } (if useLet `[let ~({} val valExpr) ~ifExpr] ifExpr)))
@@ -134,26 +148,27 @@ The pattern-matching macros use two internal, unexported functions to generate p
 
 `fn` defines a function using pattern matching. A `fn` form is made up of _clauses_ separated by the string `“.”`. Each clause is zero or more argument patterns, followed by a function body. When the function defined by `fn` is called, the array of arguments is matched against the argument patterns of each clause, in order, until one matches; if no clause matches, an exception is thrown.
 
->     ((fn x (+ 1 x)) 2) ;= 3
->
+>     ((fn x (add 1 x)) 2) ;= 3
+
 >     ((fn 1 'a
 >        . 2 'b
 >        . 3 'c) 2) ;= “b”
->
+
 >     (let {
 >       recursiveSum: (fn [] 0
->                       . [x … xs] (+ x (recursiveSum xs)))
+>                       . [x … xs] (add x (recursiveSum xs)))
 >     } (recursiveSum '[1 2 3 4])) ;= 10
 
 ---
 
     macro.fn:
     (fn* args
-      `[closure {} (case $args
-         ~@(mapcat (fn- pat `[~(quote (init pat)) ~(last pat)])
-                    (split “.” args))
-         args (raise {
-           err: “BadArgs”, why: “no pattern match for arguments”, args}))])
+      `[fn* .args.
+         (case .args.
+           ~@(mapcat (fn- pat `[~(init pat) ~(last pat)])
+                       (split “.” args))
+           args (raise { err: “BadArgs”, why: “no pattern match for arguments”,
+                         fn: (myName), args }))])
 
 ## `let*`
 
@@ -162,17 +177,17 @@ The pattern-matching macros use two internal, unexported functions to generate p
 `(let* pat₀ val₀ pat₁ val₁ … patₙ valₙ body)` evaluates `val₀`…`valₙ` in order, matching each pattern `pat` to the corresponding `val`, with the resulting bindings available when evaluating subsequent `val`s. It then returns the result of evaluating `body` with all bindings from all patterns in scope.
 
 >     (let* 42) ;= 42
->
+
 >     (let* x 91
 >           x) ;= 91
->
+
 >     (let* [x y z] '[1 2 3]
 >           y) ;= 2
->
+
 >     (let* x 1
 >           y 2
 >           {x y}) ;= {x: 1, y: 2}
->
+
 >     (let* [x … xs] '[1 2 3]
 >           {x xs}) ;= {x: 1, xs: [2 3]}
 
@@ -186,9 +201,9 @@ Unlike `let`, `let*` does not allow recursive definitions.
     (fn body body
       . pat val … rest
           `[case ~val
-              ~pat (let* ~@rest)
-              _ (raise { err: “NoMatch”, fn: “let*”,
-                         pattern: ~(quote pat), value: ~(quote val) })])
+             ~pat (let* ~@rest)
+             _ (raise { err: “NoMatch”, fn: ~(myName),
+                        pattern: ~(quote pat), value: ~(quote val) })])
 
 ## Exports
 

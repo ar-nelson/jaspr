@@ -42,6 +42,93 @@ The primary use of signals in Jaspr is to raise and handle _errors_. A Jaspr err
 
 ## Handler Macros
 
+### `catch`
+
+`(catch body pat₀ handler₀ pat₁ handler₁ … patₙ handlerₙ)` evaluates `body` with a signal handler. When a signal is thrown in `body`,
+
+1. The fiber evaluating `body` is canceled.
+2. The signal is matched against each pattern `pat₀`…`patₙ`.
+3. If any `pat` matches, the corresponding `handler` is evaluated, and its return value becomes the return value of the `catch` form.
+4. If no `pat` matches, the signal is re-raised.
+5. If a parent signal handler resumes the re-raised signal, the resumed value becomes the return value of the `catch` form, and `body` is still canceled.
+
+>     (catch 'pass
+>       _ 'fail) ;= "pass"
+
+>     (catch (await (raise 'err) 'pass)
+>       _ 'fail) ;= "fail"
+
+>     (catch (await (raise 'err) 'pass)
+>       e e) ;= "err"
+
+>     (catch (await (raise {err: 'bar, msg: "error message"}) 'pass)
+>       {err: 'foo, msg} ([] 1 msg)
+>       {err: 'bar, msg} ([] 2 msg)
+>       {err: 'baz, msg} ([] 3 msg)) ;= [2, "error message"]
+
+If a `handler` raises a signal, that signal is handled by `catch`'s parent signal handler.
+
+>     (catch (catch (raise 'inner)
+>              _ (raise 'outer))
+>       err ([] err)) ;= [“outer”]
+
+`catch` only resolves once its return value has _deeply_ resolved, to guarantee that uncatchable signals aren't raised after `catch` has already returned. However, if `catch` spawns fibers that aren't incorporated into its return value---for example, with `do`---and those fibers are still running when `catch` resolves, they will be canceled.
+
+>     (let {ch: (chan!), _: (await (sleep 200) (send! 'outer ch))} {
+>       returned: (catch (do (await (sleep 100) (raise 'inner)) true)
+>                   x (do (send! x ch) false)),
+>       raised: (recv! ch)
+>     }) ;= {returned: true, raised: “outer”}
+
+`catch` raises a `BadArgs` error at macro expansion time if it has an even number of arguments, or a `BadPattern` error at macro expansion time if one of the `pat` patterns is not a valid pattern.
+
+---
+
+    macro.catch:
+    (fn body … patterns
+      `[catchWith (fn .err. (case .err. ~@patterns
+                                        _ (raise .err.)))
+                  ~body])
+
+### `resume`
+
+`(resume body pat₀ handler₀ pat₁ handler₁ … patₙ handlerₙ)` evaluates `body` with a signal handler. When a signal is thrown in `body`,
+
+1. The signal is matched against each pattern `pat₀`…`patₙ`.
+2. If any `pat` matches, the corresponding `handler` is evaluated, and the signal is resumed with its return value.
+3. If no `pat` matches, the signal is re-raised.
+4. If a parent signal handler resumes the re-raised signal, the original signal is resumed with its resume value.
+
+>     (resume 'pass
+>       _ 'fail) ;= "pass"
+
+>     (resume (raise 'fail)
+>       _ 'resume) ;= "resume"
+
+>     (resume (raise 'err)
+>       e e) ;= "err"
+
+>     (resume (cons null (raise {err: 'bar, msg: "error message"}))
+>       {err: 'foo, msg} ([] 1 msg)
+>       {err: 'bar, msg} ([] 2 msg)
+>       {err: 'baz, msg} ([] 3 msg)) ;= [null, 2, "error message"]
+
+If a `handler` raises a signal, that signal is handled by `resume`'s parent signal handler.
+
+>     (resume (resume (raise 'inner)
+>               _ (raise 'outer))
+>       err ([] err)) ;= [“outer”]
+
+`resume` raises a `BadArgs` error at macro expansion time if it has an even number of arguments, or a `BadPattern` error at macro expansion time if one of the `pat` patterns is not a valid pattern.
+
+---
+
+    macro.resume:
+    (fn body … patterns
+      `[resumeWith (fn .err. (case .err. ~@patterns
+                                         _ (raise .err.)))
+                   ~body])
+
 ### `catchWith`
 
 `(catchWith handler body)` evaluates `body` with `handler` as its signal handler function. If any signal is raised in `body`, the fiber evaluating `body` will be canceled, the signal will be passed to `handler`, and the return value of `handler` will become the return value of the `catchWith` expression.
@@ -103,7 +190,10 @@ The pattern-matching `resume` macro is better suited than `resumeWith` to most u
 
 ## Exports
 
-    $export: {catchWith, resumeWith}
+    $export: {
+      catch resume catchWith resumeWith
+      🚨:resume ⚐:catch 🏳:catch
+    }
 
 [☙ Pattern Matching][prev] | [🗏 Table of Contents][toc] | [Iterators and Pipelines ❧][next]
 :---|:---:|---:

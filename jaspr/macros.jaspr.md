@@ -31,7 +31,7 @@ Returns a string that is guaranteed to be unique, distinct from every other stri
 
 ## Lambda Macros
 
-These remove one level of parens. For example, `(\ print! _)` becomes `(fn _ (print! _))`. The named lambdas `\x`, `\y`, and `\z` allow nesting with different variable names. `\xy` is a two-argument lambda.
+These remove one level of parens. For example, `(\ foo _)` becomes `(fn _ (foo _))`. The named lambdas `\x`, `\y`, and `\z` allow nesting with different variable names. `\xy` is a two-argument lambda.
 
     macro.\: (fn* body `[fn- _ ~body])
     macro.\x: (fn* body `[fn- x ~body])

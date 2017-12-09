@@ -5,6 +5,6 @@ $version: "1.0"
 $import: {jaspr.primitive}
 
 hello-world: '"Hello, world!"
-$main: (jaspr.primitive.print! hello-world)
+$main: (jaspr.primitive.inspect! hello-world)
 
 $export: {hello-world}

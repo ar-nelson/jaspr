@@ -15,7 +15,7 @@ let root: Root | null
 
 describe('the standard library', () => {
   it('loads', function() {
-    this.timeout(5000)
+    this.timeout(10000)
     return stdlib || Promise.reject('stdlib is null')
   })
   

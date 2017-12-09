@@ -1,4 +1,4 @@
-☙ Table of Contents | [🗏 Table of Contents][toc] | [Data Types ❧][next]
+[☙ Table of Contents][toc] | [🗏 Table of Contents][toc] | [Data Types ❧][next]
 :---|:---:|---:
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
@@ -466,23 +466,31 @@ The resulting function raises a `BadArgs` error if it is called with a different
 
 Macro expands its argument in the current scope.
 
-    macro.macroexpand: (fn- code `(p.macroexpand ~code))
-
 >     (let {macro.to42: (fn- x 42)} (macroexpand '(to42 x))) ;= 42
+
+---
+
+    macro.macroexpand: (fn- code `(p.macroexpand ~code))
 
 ### `eval`
 
 Evaluates its argument in the current scope. Note that `eval` performs evaluation _without_ macro expansion.
 
-    macro.eval: (fn- code `(p.eval ~code))
-
 >     (let {to42: (fn- x 42)} (eval '(to42 null))) ;= 42
+
+---
+
+    macro.eval: (fn- code `(p.eval ~code))
 
 ### `apply`
 
-`(apply callee args)` calls the value `callee` with the arguments array `args`. Raises a `NotCallable` error if `callee` is not callable, or a `BadArgs` error if `args` is not an array.
+`(apply callee args)` calls the value `callee` with the arguments array `args`.
 
 >     (apply {} '[a 1 b 2]) ;= {a: 1, b: 2}
+
+`apply` raises a `NotCallable` error if `callee` is not callable, or a `BadArgs` error if `args` is not an array.
+
+---
 
     apply:
     (fn- callee args
@@ -495,13 +503,31 @@ Looks up a name in the current scope, in a context other than the default (`valu
 
 >     (let {macro.to42: (fn- x 42)} ((contextGet macro to42) null)) ;= 42
 
-    macro.contextGet: (closure {} `[p.contextGet ~(0 $args) ~(1 $args)])
+Raises a `BadArgs` error at macro expansion time if either argument is not a string.
+
+---
+
+    macro.contextGet:
+    (fn- ctx name
+      (assertArgs (p.is? (p.typeOf ctx) 'string) "context must be a string"
+                  (p.is? (p.typeOf name) 'string) "name must be a string"
+        `[p.contextGet ~ctx ~name]))
+
+### `inspect!`
+
+`(inspect! x)` displays the value `x` to the user for debugging purposes, in an implementation-dependent manner and format. It then returns `x`.
+
+The default implementation of `inspect!` is to pretty-print `x` in a syntax-highlighted and indented format.
+
+`inspect!` is a debugging function, and should not be used in production software.
+
+    inspect!: (fn- x (p.inspect! x))
 
 ### Other Special Forms
 
 `do`, `await`, `awaitAll`, `choice`, `chan!`, `send!`, `recv!`, `close!`, and `closed?` are part of the core language; these deal with concurrency, channels, and message passing, and are defined in [Concurrency and Channels](concurrency.jaspr.md).
 
-`fn`, `case`, `let*`, `catch`, and `resume` are also core parts of Jaspr syntax; these are defined in [Pattern Matching](pattern-matching.jaspr.md).
+`fn`, `case`, and `let*` are also core parts of Jaspr syntax; these are defined in [Pattern Matching](pattern-matching.jaspr.md).
 
 ## Naming Conventions
 
@@ -527,12 +553,12 @@ If a macro uses a string as a marker to separate parts of an array (for example,
 
     $export: {
       closure raise myName assertArgs let fn* if and or fn- macroexpand eval
-      apply contextGet
+      apply contextGet inspect!
 
-      ⚑:raise 🏴:raise 🏷:let &&: and ||: or
+      ⚑:raise 🏴:raise 🏷:let &&:and ||:or 💬:inspect!
     }
 
-☙ Table of Contents | [🗏 Table of Contents][toc] | [Data Types ❧][next]
+[☙ Table of Contents][toc] | [🗏 Table of Contents][toc] | [Data Types ❧][next]
 :---|:---:|---:
 
 [toc]: jaspr.jaspr.md

@@ -20,7 +20,7 @@ Data structures (arrays and objects) in Jaspr are lazy, although not to the exte
 For example, consider the following expression:
 
 >     (hd ([] (p.add 1 1) (await (sleep 1000)
->                                (p.print! “foo”)
+>                                (inspect! “foo”)
 >                                42))) ;= 2
 
 `hd` returns the first element of the array, `(+ 1 1)`, which evaluates to 2. The second element, which will take 1 second to compute and cause a side effect, is not relevant to the result.
