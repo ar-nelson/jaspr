@@ -9,6 +9,8 @@ import * as Names from './ReservedNames'
 import {NativeAsyncFn} from './NativeFn'
 import Chan from './Chan'
 import chalk from 'chalk'
+import {randomBytes} from 'crypto'
+const base65536 = require('base65536')
 
 export class Branch implements Env {
   readonly root: Root
@@ -90,8 +92,8 @@ export class Branch implements Env {
   }
   
   gensym(name?: string) {
-    const id = uuid()
-    return name ? name + '$' + id : id
+    const id = base65536.encode(randomBytes(16))
+    return name ? name + '|' + id : id
   }
 
   get closureName(): string { return this.root.closureName }
@@ -223,11 +225,4 @@ export class Root extends Branch {
   get closureName() { return this._closureName }
   get signalHandlerVar() { return this._signalHandlerVar }
   get nameVar() { return this._nameVar }
-}
-
-// https://gist.github.com/LeverOne/1308368
-export function uuid(): string {
-  let a: any, b: any
-  for(b=a='';a++<36;b+=a*51&52?(a^15?8^Math.random()*(a^20?16:4):4).toString(16):'-');
-  return b
 }

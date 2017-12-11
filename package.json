@@ -14,6 +14,7 @@
   "license": "ISC",
   "dependencies": {
     "async": "^2.5.0",
+    "base65536": "^2.0.2",
     "chalk": "^2.3.0",
     "lodash": "^4.17.4",
     "string-length": "^2.0.0",
