@@ -1,8 +1,6 @@
 [☙ Macros][prev] | [🗏 Table of Contents][toc] | [Array Operations ❧][next]
 :---|:---:|---:
 
-    $schema: “http://adam.nels.onl/schema/jaspr/module”
-
 # Number Operations
 
 ## Arithmetic

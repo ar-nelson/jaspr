@@ -1,8 +1,6 @@
 [☙ Syntax and Semantics][prev] | [🗏 Table of Contents][toc] | [Concurrency ❧][next]
 :---|:---:|---:
 
-    $schema: “http://adam.nels.onl/schema/jaspr/module”
-
 # Data Types
 
 All data in Jaspr, even functions/closures, belongs to one of the six JSON data types. All Jaspr values are immutable, and cannot contain cycles (except for closures).

@@ -1,8 +1,6 @@
 [☙ Concurrency and Channels][prev] | [🗏 Table of Contents][toc] | [Number Operations ❧][next]
 :---|:---:|---:
 
-    $schema: “http://adam.nels.onl/schema/jaspr/module”
-
 # Macros
 
 ## Macro Utilities

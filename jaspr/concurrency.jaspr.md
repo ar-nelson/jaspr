@@ -1,8 +1,6 @@
 [☙ Data Types][prev] | [🗏 Table of Contents][toc] | [Macros ❧][next]
 :---|:---:|---:
 
-    $schema: “http://adam.nels.onl/schema/jaspr/module”
-
 # Concurrency and Channels
 
 ## Fibers

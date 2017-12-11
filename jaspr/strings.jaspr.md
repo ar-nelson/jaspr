@@ -1,8 +1,6 @@
 [☙ Object Operations][prev] | [🗏 Table of Contents][toc] | [Pattern Matching ❧][next]
 :---|:---:|---:
 
-    $schema: “http://adam.nels.onl/schema/jaspr/module”
-
 # String Operations
 
     ; TODO: Implement string operations

@@ -131,13 +131,15 @@ function normalizeExports(exports?: Json, name = 'export'): { [as: string]: stri
 export function readModuleFile(
   filename: string,
   cb: AsyncResultCallback<ModuleSource, JasprError>,
-  history: string[] = []
+  history?: string[]
 ): void {
   filename = path.normalize(filename)
-  if (history.indexOf(filename) >= 0) {
-    return cb(undefined, {$schema: currentSchema})
+  if (history) {
+    if (history.indexOf(filename) >= 0) {
+      return cb(undefined, {$schema: currentSchema})
+    }
+    history.push(filename)
   }
-  history.push(filename)
   fs.readFile(filename, (err, data) => {
     // Error check
     if (err != null) return cb({
@@ -170,73 +172,76 @@ export function readModuleFile(
       } else throw ex
     }
 
-    // Validate string properties
     if (!isObject(src)) return cb({
       err: 'BadModule', why: 'module is not an object',
       module: src, filename
     })
-    if (src.$schema !== currentSchema) return cb({
-      err: 'BadModule', why: 'bad or missing $schema property',
-      help: `
-        Jaspr modules must have a $schema property, and that property must be a
-        valid Jaspr module schema location. Currently, the only supported schema
-        is "${currentSchema}".
-      `.trim().replace(/\s+/gm, ' '),
-      schema: src.$schema || null, filename
-    })
-    for (let key of ['$module', '$doc', '$author']) {
-       if (src.hasOwnProperty(key) && typeof src[key] !== 'string') return cb({
-         err: 'BadModule', why: `${key} is not a string`,
-         [key]: src[key], filename
-       })
-    }
-    if (src.hasOwnProperty('$module') && !moduleNameRegex.test('' + src.$module)) {
-      return cb({
-        err: 'BadModule', why: 'bad module name ($module property)',
-        $module: src.$module, filename
-      })
-    }
+    
+    // Format imports and exports
+    src.$import = normalizeImports(src.$import || src.$imports)
+    delete src.$imports
+    src.$export = normalizeExports(src.$export || src.$exports)
+    delete src.$exports
 
-    try {
-      // Format imports and exports
-      src.$import = normalizeImports(src.$import || src.$imports)
-      delete src.$imports
-      src.$export = normalizeExports(src.$export || src.$exports)
-      delete src.$exports
-
-      // Load includes
-      if (src.hasOwnProperty('$include')) {
-        const includes = src.$include
-        delete src.$include
-        if (isArray(includes)) {
-          const includeNext = (mod: ModuleSource) => {
-            const include = includes.pop()
-            if (include === undefined) return cb(undefined, mod)
-            else if (typeof include !== 'string') return cb({
-              err: 'BadModule', why: 'include is not a string',
-              include, filename
+    // Validate string properties if this is not an include file
+    const done: (m: ModuleSource) => void =
+      history ? src => cb(undefined, src) :
+      src => {
+        if (src.$schema !== currentSchema) return cb({
+          err: 'BadModule', why: 'bad or missing $schema property',
+          help: `
+            Jaspr modules must have a $schema property, and that property must
+            be a valid Jaspr module schema location. Currently, the only
+            supported schema is "${currentSchema}".
+          `.trim().replace(/\s+/gm, ' '),
+          schema: src.$schema || null, filename
+        })
+        for (let key of ['$module', '$doc', '$author']) {
+          if (src.hasOwnProperty(key) && typeof src[key] !== 'string') {
+            return cb(<any>{
+              err: 'BadModule', why: `${key} is not a string`,
+              [key]: src[key], filename
             })
-            const incFilename =
-              path.isAbsolute(include)
-              ? include : path.join(path.dirname(filename), include)
-            readModuleFile(incFilename, (err, included) => {
-              if (err) return cb(err)
-              includeNext(mergeModules(
-                <ModuleSource>mod, <ModuleSource>included,
-                filename, incFilename))
-            }, history)
           }
-          includeNext(<ModuleSource>src)
-        } else throw {
-          err: 'BadModule', why: '$include is not an array', $include: includes
         }
-      } else {
-        cb(undefined, <ModuleSource>src)
+        if (src.hasOwnProperty('$module') &&
+            !moduleNameRegex.test('' + src.$module)) {
+          return cb(<any>{
+            err: 'BadModule', why: 'bad module name ($module property)',
+            $module: src.$module, filename
+          })
+        }
+        cb(undefined, src)
       }
-    } catch (ex) {
-      ex.filename = filename
-      cb(ex)
-    }
+
+    // Load includes
+    if (src.hasOwnProperty('$include')) {
+      const includes = src.$include, includeHistory = history || [filename]
+      delete src.$include
+      if (isArray(includes)) {
+        const includeNext = (mod: ModuleSource) => {
+          const include = includes.pop()
+          if (include === undefined) return done(mod)
+          else if (typeof include !== 'string') return cb({
+            err: 'BadModule', why: 'include is not a string',
+            include, filename
+          })
+          const incFilename =
+            path.isAbsolute(include)
+            ? include : path.join(path.dirname(filename), include)
+          readModuleFile(incFilename, (err, included) => {
+            if (err) return cb(err)
+            includeNext(mergeModules(
+              <ModuleSource>mod, <ModuleSource>included,
+              filename, incFilename))
+          }, includeHistory)
+        }
+        includeNext(<ModuleSource>src)
+      } else cb({
+        err: 'BadModule', why: '$include is not an array', $include: includes,
+        filename
+      })
+    } else done(<ModuleSource>src)
   })
 }
 

@@ -1,8 +1,6 @@
 [☙ Pattern Matching][prev] | [🗏 Table of Contents][toc] | [Iterators and Pipelines ❧][next]
 :---|:---:|---:
 
-    $schema: “http://adam.nels.onl/schema/jaspr/module”
-
 # Signals and Error Handling
 
 Errors in Jaspr are handled via _signals_. Signals are similar to exceptions in most programming languages, but, in addition to unwinding the stack and aborting a computation, they also allow the possibility of _resuming_ a computation at the point where a signal was raised.

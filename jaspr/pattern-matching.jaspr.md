@@ -1,8 +1,6 @@
 [☙ String Operations][prev] | [🗏 Table of Contents][toc] | [Signals and Error Handling ❧][next]
 :---|:---:|---:
 
-    $schema: “http://adam.nels.onl/schema/jaspr/module”
-
 # Pattern Matching
 
 The `case`, `fn`, and `let*` macros interpret certain forms as patterns, and match those patterns against values.

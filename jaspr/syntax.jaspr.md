@@ -1,8 +1,6 @@
 [☙ Table of Contents][toc] | [🗏 Table of Contents][toc] | [Data Types ❧][next]
 :---|:---:|---:
 
-    $schema: “http://adam.nels.onl/schema/jaspr/module”
-
 # Syntax and Semantics
 
 Jaspr is, broadly speaking, a Lisp-like language: function calls are written `(functionName arg₀ arg₁ … argₙ)`, everything is an expression, and the language is [homoiconic][homoiconic] and can rewrite its own syntax via macros.

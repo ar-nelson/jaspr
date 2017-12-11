@@ -1,8 +1,6 @@
 [☙ Array Operations][prev] | [🗏 Table of Contents][toc] | [String Operations ❧][next]
 :---|:---:|---:
 
-    $schema: “http://adam.nels.onl/schema/jaspr/module”
-
 # Object Operations
 
     ; TODO: Define object operations
