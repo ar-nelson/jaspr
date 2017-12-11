@@ -1,4 +1,4 @@
-🗏 Table of Contents | [Data Types ❧][next]
+🗏 Table of Contents | [Syntax and Semantics ❧][next]
 :---:|---:
 
 # Jaspr
@@ -62,7 +62,7 @@ This index file does not contain any Jaspr code; the standard library is defined
 
 ---
 
-🗏 Table of Contents | [Data Types ❧][next]
+🗏 Table of Contents | [Syntax and Semantics ❧][next]
 :---:|---:
 
-[next]: data-types.jaspr.md
+[next]: syntax.jaspr.md
