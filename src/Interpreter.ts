@@ -8,6 +8,8 @@ import {
   Callback, getIndex, getKey, resolveFully, toString, toBool, magicSymbol, has
 } from './Jaspr'
 
+import prettyPrint from './PrettyPrint'
+
 export interface Scope extends JasprObject {
   value: JasprObject
   macro: JasprObject
@@ -272,6 +274,42 @@ function* macroExpandGen(
           cb => macroExpandGen(env, scope, dynamics, (<any>code)[i], cb),
           env, () => ({action: 'macroexpand', code: (<any>code)[i]}), out, i)
       }
+      
+      // Optimize away redundant let expressions
+      if (out.length === 1) {
+        let fn = out[0]
+        if (fn instanceof Deferred) fn = <Jaspr>(yield fn)
+        if (isArray(fn) && fn.length === 4 &&
+            (fn[0] instanceof Deferred ? yield <any>fn[0] : fn[0]) === Names.closure) {
+          const defs = fn[1] instanceof Deferred ? yield <any>fn[1] : fn[1]
+          const fields = fn[3] instanceof Deferred ? yield <any>fn[3] : fn[3]
+          if (isObject(defs) && isObject(fields) && _.isEmpty(fields)) {
+            const body = fn[2] instanceof Deferred ? yield <any>fn[2] : fn[2]
+            const names = Object.keys(defs)
+            // Redundant case #1: Bind one value, then immediately return it
+            if (names.length === 1 && body === names[0] && isLegalName(names[0])) {
+              const it = defs[names[0]]
+              cb(it instanceof Deferred ? yield it : it)
+              break
+            }
+            // Redundant case #2: Bind only constants and other variables
+            else if (_.every(names, k => isLegalName(k) &&
+                (isLiteral(defs[k]) || typeof defs[k] === 'string') &&
+                !(''+defs[k] in defs))) {
+              try {
+                // Inline the bindings, removing the redundant closure
+                yield* subst(body, <any>defs, cb)
+              } catch (err) {
+                // subst may throw false if it encounters something that can't
+                // be safely inlined
+                if (err) console.error(err)
+                cb(out)
+              }
+              break
+            }
+          }
+        }
+      }
       cb(out)
     } else cb(code)
   } while(false)
@@ -369,6 +407,50 @@ function* syntaxQuote(
     }, null)
     else cb(null, value)
   })
+}
+
+function* subst(
+  form: Jaspr | Deferred,
+  substs: Dictionary<Jaspr>,
+  cb: Callback,
+  nested: boolean = false
+): IterableIterator<Deferred> {
+  const code: Jaspr = form instanceof Deferred ? yield form : form
+  if (isArray(code) && code.length > 0) {
+    const fn = code[0] instanceof Deferred ? yield <any>code[0] : <Jaspr>code[0]
+    if (code.length === 2 && fn === '') cb(code)
+    else if (code.length === 4 && fn === Names.closure) {
+      const defs =
+        (code[1] instanceof Deferred ? yield <any>code[1] : <Jaspr>code[1]) || {}
+      const shadowed = Object.keys(defs)
+        .map(k => k.startsWith('macro.') ? k.slice(6) : k)
+        .filter(k => k.indexOf('.') === -1)
+      const newSubsts: any = _.omit(substs, ...shadowed)
+      const out: JasprArray = new Array(4)
+      out[0] = Names.closure
+      yield* subst(code[1], newSubsts, v => out[1] = v, true)
+      yield* subst(code[2], newSubsts, v => out[2] = v, true)
+      yield* subst(code[3], substs, v => out[3] = v, nested)
+      cb(out)
+    } else {
+      const out: JasprArray = new Array(code.length)
+      for (let i = 0; i < code.length; i++) {
+        yield* subst(code[i], substs, v => out[i] = v, nested)
+      }
+      cb(out)
+    }
+  } else if (isObject(code)) {
+    const out: JasprObject = Object.create(null)
+    for (let key in code) {
+      yield* subst(code[key], substs, v => out[key] = v, nested)
+    }
+    cb(out)
+  } else if (typeof code === 'string' && substs[code] !== undefined) {
+    if (nested && substs[code] === Names.args) throw false
+    cb(substs[code])
+  } else if (code === Names.eval_ || code === Names.macroexpand) {
+    throw false
+  } else cb(code)
 }
 
 export interface Namespace {

@@ -376,10 +376,21 @@ If no `pred` evaluated to a truthy value, `else` is evaluated. If `else` is miss
     macro.if:
     (fn* argv
       (let {argc: (p.arrayLength argv)}
-        `[$if ~(0 argv) ~(1 argv)
-              ~(p.if (p.< argc 4)
-                     (p.if (p.is? argc 3) (2 argv) null)
-                       `[if ~@(p.arraySlice 2 argc argv)])]))
+        (assertArgs (p.<= 2 argc) "expected 2 or more arguments"
+          (let { pred: (0 argv), then: (1 argv),
+                 else: (p.if (p.< argc 4)
+                         (p.if (p.is? argc 3) (2 argv) null)
+                           `[if ~@(p.arraySlice 2 argc argv)]) }
+
+`if` performs a simple optimization by removing inaccessible branches when the predicate is a constant.
+
+            (p.if pred
+                  (p.if (p.is? pred true)
+                        then
+                        (p.if (p.is? (p.typeOf pred) 'number)
+                              then
+                              `[p.if ~pred ~then ~else]))
+                  else)))))
 
 ### `and`
 

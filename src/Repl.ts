@@ -3,13 +3,13 @@ import * as readline from 'readline'
 import {waterfall} from 'async'
 
 import {Jaspr, JasprError, Json, Callback, resolveFully} from './Jaspr'
-import {Scope, emptyScope, Env, expandAndEval} from './Interpreter'
+import {Scope, emptyScope, mergeScopes, Env, expandAndEval} from './Interpreter'
 import {readModuleFile, evalModule, importModule, ModuleSource, Module} from './Module'
 import {Root, Branch} from './Fiber'
 import Parser from './Parser'
 import prettyPrint from './PrettyPrint'
 import prim from './JasprPrimitive'
-import {version, primitiveModule} from './ReservedNames'
+import {version, primitiveModule as pName} from './ReservedNames'
 
 const banner = `
 ⎧                          ⎫
@@ -43,14 +43,15 @@ let continued = false
 let ready = false
 
 const filename = 'jaspr/jaspr.jaspr.md'
+const pModule = prim(root)
 const scopePromise = new Promise<Scope>(resolve => {
   waterfall<Module, JasprError>([
     (cb: any) => readModuleFile(filename, cb),
     (mod: ModuleSource, cb: any) => evalModule(root, mod, {
-      filename, localModules: new Map([[primitiveModule, prim(root)]])
+      filename, localModules: new Map([[pName, pModule]])
     }, cb),
     (mod: Module, cb: any) => resolveFully(importModule(mod), cb)
-  ], (err, mod) => {
+  ], (err, stdlibModule) => {
     if (err) {
       console.error(chalk.redBright('\n⚠☠ Failed to load standard library.'))
       if (err instanceof Error) console.error(err)
@@ -58,7 +59,7 @@ const scopePromise = new Promise<Scope>(resolve => {
       return process.exit(1)
     }
     ready = true
-    resolve(mod)
+    resolve(mergeScopes(root, importModule(pModule), <Scope>stdlibModule))
   })
 })
 
