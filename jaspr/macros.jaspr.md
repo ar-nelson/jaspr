@@ -51,7 +51,7 @@ These remove one level of parens. For example, `(\ foo _)` becomes `(fn _ (foo _
       (assertArgs args "expected one or more arguments"
         (if (= 1 (len args))
             (0 args)
-            (let {arg: (0 args) f: (1 args) rest: (tl (tl args))}
+            (define {arg: (0 args) f: (1 args) rest: (tl (tl args))}
               `[-> ~(if (and f (array? f))
                         `[~(hd f) ~arg ~@(tl f)]
                         `[~f ~arg])
@@ -69,7 +69,7 @@ These remove one level of parens. For example, `(\ foo _)` becomes `(fn _ (foo _
       (assertArgs args "expected one or more arguments"
         (if (= 1 (len args))
             (0 args)
-            (let {arg: (0 args) f: (1 args) rest: (tl (tl args))}
+            (define {arg: (0 args) f: (1 args) rest: (tl (tl args))}
               `[->> ~(if (and f (array? f)) `[~@f ~arg] `[~f ~arg])
                     ~@rest]))))
 
@@ -102,8 +102,9 @@ The `comment` macro ignores its arguments and expands to `null`.
     (fn- name args body
       (assertArgs (string? name) "name (1st arg) is not a literal string"
                   (object? args) "start value (2nd arg) is not an object"
-        `[let ~({} name `[closure {}
-             (let ~(p.objectMake (fn- k `[~(quote k) (0 $args)]) (keys args)) ~body)])
+        `[define ~({} name `[closure {}
+             (define ~(p.objectMake (fn- k `[~(quote k) (0 $args)]) (keys args))
+                     ~body)])
            (~name ~args)]))
 
 ### `doTimes`
@@ -112,7 +113,7 @@ The `comment` macro ignores its arguments and expands to `null`.
 
     macro.doTimes:
     (fn- n body
-      `[let {.n.: ~n}
+      `[define {.n.: ~n}
          (if (and (integer? .n.) (>= .n. 0))
              (loopAs next {.n.} (if .n. (do ~body (next {.n.: (dec .n.)}))))
              (raise {
@@ -148,14 +149,14 @@ If `default` is not present, it is `null`.
     macro.case=:
     (fn* args
       (assertArgs args "expected at least 1 argument"
-        (let {v: (gensym!)}
-          `[let ~({} v (hd args))
-                ~(loopAs cases {exprs: (tl args)}
-                   (if (no exprs) null
-                       (= 1 (len exprs)) (hd exprs)
-                       `[if (= ~v ~(0 exprs))
-                            ~(1 exprs)
-                            ~(cases {exprs: (tl (tl exprs))})]))])))
+        (define {v: (gensym!)}
+          `[define ~({} v (hd args))
+             ~(loopAs cases {exprs: (tl args)}
+                (if (no exprs) null
+                    (= 1 (len exprs)) (hd exprs)
+                      `[if (= ~v ~(0 exprs))
+                           ~(1 exprs)
+                           ~(cases {exprs: (tl (tl exprs))})]))])))
 
 ### `assert`
 

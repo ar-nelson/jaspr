@@ -16,7 +16,7 @@ Streams are useful when chaining sequence operations together, both for performa
 >     (closed? (emptyStream!)) ;= true
 
     emptyStream!:
-    (fn- (let* stream (chan!) (await (close! stream) stream)))
+    (fn- (let stream (chan!) (await (close! stream) stream)))
 
 ### `stream!`
 
@@ -24,18 +24,18 @@ Streams are useful when chaining sequence operations together, both for performa
 
 >     (recv! (stream! '[1 2 3])) ;= {value: 1, done: false}
 
->     (let {stream: (stream! '[1 2 3])}
+>     (define {stream: (stream! '[1 2 3])}
 >       (await (recv! stream)
 >              (recv! stream))) ;= {value: 2, done: false}
 
->     (let {stream: (stream! '[1 2 3])}
+>     (define {stream: (stream! '[1 2 3])}
 >       (await (recv! stream)
 >              (recv! stream)
 >              (recv! stream))) ;= {value: 3, done: false}
 
 After the last element of `xs` has been received, the returned channel is closed.
 
->     (let {stream: (stream! '[foo bar])}
+>     (define {stream: (stream! '[foo bar])}
 >       (await (recv! stream)
 >              (recv! stream)
 >              (recv! stream))) ;= {value: null, done: true}
@@ -53,18 +53,18 @@ After the last element of `xs` has been received, the returned channel is closed
 
 >     (recv! (streamOf! 1 2 3)) ;= {value: 1, done: false}
 
->     (let {stream: (streamOf! 1 2 3)}
+>     (define {stream: (streamOf! 1 2 3)}
 >       (await (recv! stream)
 >              (recv! stream))) ;= {value: 2, done: false}
 
->     (let {stream: (streamOf! 1 2 3)}
+>     (define {stream: (streamOf! 1 2 3)}
 >       (await (recv! stream)
 >              (recv! stream)
 >              (recv! stream))) ;= {value: 3, done: false}
 
 After the last element of `xs` has been received, the returned channel is closed.
 
->     (let {stream: (streamOf! 'foo 'bar)}
+>     (define {stream: (streamOf! 'foo 'bar)}
 >       (await (recv! stream)
 >              (recv! stream)
 >              (recv! stream))) ;= {value: null, done: true}
@@ -73,70 +73,70 @@ After the last element of `xs` has been received, the returned channel is closed
 
     streamOf!:
     (fn* xs
-      (let* stream (chan!)
-            max (len xs)
-            _ (loopAs next {i: 0}
-                (if (< i max) (await (send! (i xs) stream) (next {i: (inc i)}))
-                              (close! stream)))
-            stream))
+      (let stream (chan!)
+           max (len xs)
+           _ (loopAs next {i: 0}
+               (if (< i max) (await (send! (i xs) stream) (next {i: (inc i)}))
+                             (close! stream)))
+           stream))
 
 ### `streamChars!`
 
     streamChars!:
     (fn- str
       (assertArgs (string? str) "not a string"
-        (let* stream (chan!)
-              max (chars str)
-              _ (loopAs next {i: 0}
-                  (if (< i max) (await (send! (char i str) stream)
-                                       (next {i: (inc i)}))
-                                (close! stream)))
-              stream)))
+        (let stream (chan!)
+             max (chars str)
+             _ (loopAs next {i: 0}
+                 (if (< i max) (await (send! (char i str) stream)
+                                      (next {i: (inc i)}))
+                               (close! stream)))
+             stream)))
 
 ### `streamCodePoints!`
 
     streamCodePoints!:
     (fn- str
       (assertArgs (string? str) "not a string"
-        (let* stream (chan!)
-              max (codePoints str)
-              _ (loopAs next {i: 0}
-                  (if (< i max) (await (send! (codePoint i str) stream)
-                                       (next {i: (inc i)}))
-                                (close! stream)))
-              stream)))
+        (let stream (chan!)
+             max (codePoints str)
+             _ (loopAs next {i: 0}
+                 (if (< i max) (await (send! (codePoint i str) stream)
+                                      (next {i: (inc i)}))
+                               (close! stream)))
+             stream)))
 
 ### `streamBytes!`
 
     streamBytes!:
     (fn- str
       (assertArgs (string? str) "not a string"
-        (let* stream (chan!)
-              max (bytes str)
-              _ (loopAs next {i: 0}
-                  (if (< i max) (await (send! (byte i str) stream)
-                                       (next {i: (inc i)}))
-                                (close! stream)))
-              stream)))
+        (let stream (chan!)
+             max (bytes str)
+             _ (loopAs next {i: 0}
+                 (if (< i max) (await (send! (byte i str) stream)
+                                      (next {i: (inc i)}))
+                               (close! stream)))
+             stream)))
 
 ### `streamUnits!`
 
     streamUnits!:
     (fn- str
       (assertArgs (string? str) "not a string"
-        (let* stream (chan!)
-              max (units str)
-              _ (loopAs next {i: 0}
-                  (if (< i max) (await (send! (unit i str) stream)
-                                       (next {i: (inc i)}))
-                                (close! stream)))
-              stream)))
+        (let stream (chan!)
+             max (units str)
+             _ (loopAs next {i: 0}
+                 (if (< i max) (await (send! (unit i str) stream)
+                                      (next {i: (inc i)}))
+                               (close! stream)))
+             stream)))
 
 ### `forever!`
 
 `(forever! x)` returns a new channel. It sends `x` on that channel repeatedly, in an infinite loop, until the channel is closed.
 
->     (let {foos: (forever! 'foo)}
+>     (define {foos: (forever! 'foo)}
 >       ([] ('value (recv! foos))
 >           ('value (recv! foos))
 >           ('value (recv! foos)))) ;= ["foo", "foo", "foo"]
@@ -144,13 +144,17 @@ After the last element of `xs` has been received, the returned channel is closed
 ---
 
     forever!:
-    (fn- x (let { out: (chan!)
-                  loop: (fn (if (send! x out) (loop))) }
+    (fn- x (define { out: (chan!)
+                     loop: (fn (if (send! x out) (loop))) }
              (do (loop) out)))
 
 ### `iterate!`
 
+    ; TODO: Define iterate!
+
 ### `upto!`
+
+    ; TODO: Define upto!
 
 ### `chain!`
 
@@ -159,6 +163,8 @@ After the last element of `xs` has been received, the returned channel is closed
 ## Stream Converters
 
 ### `buffer!`
+
+    ; TODO: Define buffer!
 
 ### `chainEach!`
 
@@ -175,10 +181,10 @@ After the last element of `xs` has been received, the returned channel is closed
 ---
 
     chainEach!:
-    (fn in (let* out (chan!)
-                 _ (await (forEach! (\ drain! _ out) in)
-                          (close! out))
-                 out))
+    (fn in (let out (chan!)
+                _ (await (forEach! (\ drain! _ out) in)
+                         (close! out))
+                out))
 
 ### `chainMap!`
 
@@ -196,6 +202,8 @@ After the last element of `xs` has been received, the returned channel is closed
 
 ### `chunk!`
 
+    ; TODO: Define chunk!
+
 ### `cycle!`
 
 `(cycle! chan)` returns a new channel. It continually receives on the channel `chan` and sends each message on the returned channel; once `chan` closes, the returned channel starts again from the beginning of the messages received from `chan`.
@@ -206,14 +214,14 @@ After the last element of `xs` has been received, the returned channel is closed
 
 ---
 
-     cycle!: (fn in (let* [init, saved] (fork! 2 in)
+     cycle!: (fn in (let [init, saved] (fork! 2 in)
                       (->> (collect! saved) forever! flatten! (chain! init))))
 
 ### `drop!`
 
 `(drop! n chan)` receives and ignores `n` messages on `chan`, then returns `chan`.
 
->     (let* c (streamOf! 1 2 3)
+>     (let c (streamOf! 1 2 3)
 >           d (drop! 2 c)
 >           (recv! d)) ;= {value: 3, done: false}
 
@@ -238,10 +246,10 @@ After the last element of `xs` has been received, the returned channel is closed
 ---
 
     filter!:
-    (fn f in (let* out (chan!)
-                   _ (await (forEach! (\ if (f _) (send! _ out)) in)
-                            (close! out))
-                   out))
+    (fn f in (let out (chan!)
+                  _ (await (forEach! (\ if (f _) (send! _ out)) in)
+                           (close! out))
+                  out))
 
 ### `flatten!`
 
@@ -254,10 +262,10 @@ After the last element of `xs` has been received, the returned channel is closed
 ---
 
     flatten!:
-    (fn in (let* out (chan!)
-                 _ (await (forEach! (\ sendAll! _ out) in)
-                          (close! out))
-                 out))
+    (fn in (let out (chan!)
+                _ (await (forEach! (\ sendAll! _ out) in)
+                         (close! out))
+                out))
 
 ### `flatMap!`
 
@@ -273,14 +281,14 @@ After the last element of `xs` has been received, the returned channel is closed
     (fn n in
       (assertArgs (and (integer? n) (pos? n)) "not a positive integer"
                   (chan? in) "not a channel"
-        (let* outs (makeArray (\ chan!) n)
-              _ (loopAs next {last: outs}
-                  (let* {value done} (recv! in)
-                    (if done (forEach (\xy await x (close! y)) last outs)
-                             (let* sends (map (\ send! value _) outs)
-                               (await (awaitOne sends)
-                                      (next {last: sends}))))))
-              outs)))
+        (let outs (makeArray (\ chan!) n)
+             _ (loopAs next {last: outs}
+                 (let {value done} (recv! in)
+                   (if done (forEach (\xy await x (close! y)) last outs)
+                            (let sends (map (\ send! value _) outs)
+                              (await (awaitOne sends)
+                                     (next {last: sends}))))))
+             outs)))
 
 ### `map!`
 
@@ -294,10 +302,10 @@ After the last element of `xs` has been received, the returned channel is closed
     (fn f
         (emptyStream!)
       . f ... ins
-        (let* out (chan!)
-              _ (await (apply forEach! (cons (comp (\ send! _ out) f) ins))
-                       (close! out))
-              out))
+        (let out (chan!)
+             _ (await (apply forEach! (cons (comp (\ send! _ out) f) ins))
+                      (close! out))
+             out))
 
 ### `peek!`
 
@@ -323,10 +331,10 @@ After the last element of `xs` has been received, the returned channel is closed
     (fn n in
       (assertArgs (and (integer? n) (pos? n)) "not a positive integer"
                   (chan? in) "not a channel"
-        (let* out (makeArray (\ chan!) n)
-              _ (await (->> out forever! flatten! (forEach! send! in))
+        (let out (makeArray (\ chan!) n)
+             _ (await (->> out forever! flatten! (forEach! send! in))
                        (forEach close! out))
-              out)))
+             out)))
 
 ### `zip!`
 
@@ -428,13 +436,13 @@ After the last element of `xs` has been received, the returned channel is closed
 
 `(forEach! f stream)` receives repeatedly on the channel `stream`, and calls `f` with each received value before receiving the next one. When `stream` is closed, `forEach!` stops iterating and returns `null`. `f` is called only for its side effects. The elements of `stream` are iterated over in order, and `forEach!` waits for each call to `f` to resolve before starting the next one.
 
->     (let* c (chan!)
->           _ (forEach! (\x send! x c) (streamOf! 1 2 3))
->           (await (recv! c) (recv! c) (recv! c))) ;= {value: 3, done: false}
+>     (let c (chan!)
+>          _ (forEach! (\x send! x c) (streamOf! 1 2 3))
+>          (await (recv! c) (recv! c) (recv! c))) ;= {value: 3, done: false}
 
 `(forEach! f s₀ s₁ … sₙ)` receives on the channels `s₀`…`sₙ` at the same time, passing `n` + 1 arguments to `f`. Iteration stops once any of the streams is closed.
 
->     (let* c1 (chan!) c2 (chan!) c3 (chan!)
+>     (let c1 (chan!) c2 (chan!) c3 (chan!)
 >       ([] (forEach! (\xy send! y x) (streamOf! c1 c2 c3) (stream! '[a b c]))
 >           ('value (recv! c1))
 >           ('value (recv! c2))
@@ -442,7 +450,7 @@ After the last element of `xs` has been received, the returned channel is closed
 
 `forEach!` does not resolve until every call to `f` has resolved. This behavior is similar to `await`.
 
->     (let* chan (chan!)
+>     (let chan (chan!)
 >       (do (await (forEach! (\ await (sleep 100) (send! _ chan)) (streamOf! 1 2))
 >                  (send! 3 chan))
 >           (await (recv! chan)
@@ -464,11 +472,13 @@ After the last element of `xs` has been received, the returned channel is closed
             (if (no done) (await (f value) (next {})))))
       . f ... streams
         (loopAs next {}
-          (let* recvs (map recv! streams)
+          (let recvs (map recv! streams)
             (if (none? 'done recvs)
                 (await (apply f (map 'value recvs)) (next {}))))))
 
 ### `forEachWhile!`
+
+    ; TODO: Define forEachWhile!
 
 ### `none?!`
 
@@ -505,7 +515,14 @@ If `chan` is closed before `n` messages have been received, `take!` may return l
 ## Exports
 
     $export: {
+      emptyStream! stream! streamOf! streamChars! streamCodePoints! streamBytes!
+      streamUnits! forever! iterate! upto! chain!
 
+      buffer! chainEach! chainMap! chunk! cycle! drop! filter! flatten! flatMap!
+      fork! map! peek! reject! roundRobin! zip!
+
+      all?! any?! collect! collectEntries! collectString! count! forEach!
+      forEachWhile! none?! reduce! take!
     }
 
 [☙ Signals and Errors][prev] | [🗏 Table of Contents][toc] | [Comparisons and Sorting ❧][next]

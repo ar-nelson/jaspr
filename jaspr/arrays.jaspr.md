@@ -82,13 +82,13 @@ A backwards `cons`. `(snoc xs x₀ x₁ … xₙ)` constructs a new array made u
     range:
     (fn* args
       (case= (len args)
-        1 (let {n: (0 args)}
+        1 (define {n: (0 args)}
             (assertArgs (integer? n) "single range argument must be integer"
               (if (pos? n) (p.arrayMake id n)
                            (p.arrayMake neg (neg n)))))
         2 (range (0 args) (1 args) (if (> (0 args) (1 args)) -1 1))
-        3 (let {start: (0 args) end: (1 args) step: (2 args)
-                span: (sub end start)}
+        3 (define {start: (0 args) end: (1 args) step: (2 args)
+                   span: (sub end start)}
             (assertArgs (number? start) "start must be a number"
                         (number? end) "end must be a number"
                         (and step (number? step)) "step must be a nonzero number"
@@ -323,11 +323,11 @@ If either `start` or `end` is negative, they behave the same as a negative index
     slice:
     (fn* args
       (case= (len args)
-        2 (let {start: (0 args) xs: (1 args)}
+        2 (define {start: (0 args) xs: (1 args)}
             (assertArgs (integer? start) "start is not an integer"
                         (array? xs) "not an array"
                         (p.arraySlice start (len xs) xs)))
-        3 (let {start: (0 args) end: (1 args) xs: (2 args)}
+        3 (define {start: (0 args) end: (1 args) xs: (2 args)}
             (assertArgs (integer? start) "start is not an integer"
                         (integer? end) "end is not an integer"
                         (array? xs) "not an array"
@@ -346,8 +346,8 @@ If either `start` or `end` is negative, they behave the same as a negative index
     (fn- n xs
       (assertArgs (and (integer? n) (pos? n)) "not a positive integer"
                   (array? xs) "not an array"
-        (p.arrayMake (\ let {m: (mul _ n)}
-                          (p.arraySlice m (add m n) xs))
+        (p.arrayMake (\ define {m: (mul _ n)}
+                               (p.arraySlice m (add m n) xs))
                      (ceil (div (len xs) n)))))
 
 ## Set Operations
@@ -361,7 +361,7 @@ If either `start` or `end` is negative, they behave the same as a negative index
     uniq:
     (fn- xs (loopAs recur {i: 0, accum: []}
       (if (< i (len xs))
-          (let {x: (i xs)} (recur {
+          (define {x: (i xs)} (recur {
             i: (inc i),
             accum: (if (in? x accum) accum (snoc accum x))
           }))
@@ -376,7 +376,7 @@ If either `start` or `end` is negative, they behave the same as a negative index
     uniq?:
     (fn- xs (loopAs recur {i: 0}
       (or (>= i (len xs))
-          (and (let {x: (i xs)}
+          (and (define {x: (i xs)}
                     (none? (\ = (_ xs) x) (range i)))
                (recur {i: (inc i)})))))
 
@@ -391,7 +391,7 @@ If either `start` or `end` is negative, they behave the same as a negative index
       (case= (len args)
         0 []
         1 (0 args)
-        2 (let {a: (0 args), b: (1 args)} (filter (\ in? _ a) b))
+        2 (define {a: (0 args), b: (1 args)} (filter (\ in? _ a) b))
         (apply intersection
                (cons (intersection (0 args) (1 args)) (drop 2 args)))))
 
@@ -402,7 +402,7 @@ If either `start` or `end` is negative, they behave the same as a negative index
       (case= (len args)
         0 []
         1 (0 args)
-        2 (let {a: (0 args), b: (1 args)}
+        2 (define {a: (0 args), b: (1 args)}
             (cat (reject (\ in? _ b) a)
                  (reject (\ in? _ a) b)))
         (apply difference
@@ -462,7 +462,7 @@ Returns `true` if its argument is the empty array.
 
     all?:
     (fn- f xs
-      (let {max: (len xs)}
+      (define {max: (len xs)}
         (loopAs recur {i: 0}
           (or (>= i max)
               (and (f (i xs)) (recur {i: (inc i)}))))))
@@ -485,7 +485,7 @@ Returns `true` if its argument is the empty array.
 
     any?:
     (fn- f xs
-      (let {max: (len xs)}
+      (define {max: (len xs)}
         (loopAs recur {i: 0}
           (and (< i max)
                (or (f (i xs)) (recur {i: (inc i)}))))))
@@ -508,7 +508,7 @@ Returns `true` if its argument is the empty array.
 
 `(forEach f xs)` calls `f` with each element in `xs`, then returns `null`. `f` is called only for its side effects, and the order of iteration is undefined and may be parallel.
 
->     (let {c1: (chan!), c2: (chan!), c3: (chan!)}
+>     (define {c1: (chan!), c2: (chan!), c3: (chan!)}
 >       ([] (forEach (\x send! 1 x) ([] c1 c2 c3))
 >           ('value (recv! c1))
 >           ('value (recv! c2))
@@ -516,7 +516,7 @@ Returns `true` if its argument is the empty array.
 
 `(forEach f xs₀ xs₁ … xsₙ)` iterates over all of `xs₀`…`xsₙ` at the same time, passing `n` + 1 arguments to `f`. Iteration stops once the end of the shortest `xs` is reached.
 
->     (let {c1: (chan!), c2: (chan!), c3: (chan!)}
+>     (define {c1: (chan!), c2: (chan!), c3: (chan!)}
 >       ([] (forEach send! '[a b c] ([] c1 c2 c3))
 >           ('value (recv! c1))
 >           ('value (recv! c2))
@@ -524,7 +524,7 @@ Returns `true` if its argument is the empty array.
 
 `forEach` does not resolve until every call to `f` has resolved. This behavior is similar to `awaitAll`. `forEach` could be considered equivalent to `(await (apply awaitAll (map f xs₀ … xsₙ)) null)`, if it were possible to `apply` a macro.
 
->     (let {chan: (chan!)}
+>     (define {chan: (chan!)}
 >       (do (await (forEach (\ await (sleep 100) (send! _ chan)) '[1 2])
 >                  (send! 3 chan))
 >           (await (recv! chan)
@@ -539,7 +539,7 @@ If iteration order is significant, use the stream function `forEach!` instead.
 
     forEach:
     (fn* args
-      (let {xs: (apply map args), max: (len xs)}
+      (define {xs: (apply map args), max: (len xs)}
         (loopAs next {i: 0}
           (if (< i max) (p.then (i xs) (next {i: (inc i)}))
                         null))))
@@ -559,9 +559,9 @@ If iteration order is significant, use the stream function `forEach!` instead.
     (fn* args
       (assertArgs args "expected at least 1 argument"
         (if (= 2 (len args))
-            (let {f: (0 args), xs: (1 args)}
+            (define {f: (0 args), xs: (1 args)}
               (p.arrayMake (\ f (_ xs)) (len xs)))
-            (let {f: (hd args), arrs: (tl args)}
+            (define {f: (hd args), arrs: (tl args)}
               (p.arrayMake (\ apply f (map _ arrs))
                            (apply min (map len arrs)))))))
 
@@ -581,10 +581,10 @@ If iteration order is significant, use the stream function `forEach!` instead.
 
     filter:
     (fn- f xs
-      (let {max: (len xs)}
+      (define {max: (len xs)}
         (loopAs next {i: 0, out: []}
           (if (< i max)
-              (let {x: (i xs)}
+              (define {x: (i xs)}
                 (next {i: (inc i), out: (if (f x) (snoc out x) out)}))
               out))))
 
@@ -605,7 +605,7 @@ If iteration order is significant, use the stream function `forEach!` instead.
 
     reduce:
     (fn- f init xs
-      (let {max: (len xs)}
+      (define {max: (len xs)}
         (loopAs next {i: 0, accum: init}
           (if (< i max)
               (next {i: (inc i), accum: (f accum (i xs))})
@@ -648,13 +648,13 @@ If iteration order is significant, use the stream function `forEach!` instead.
 >     (find number? 9 '[foo bar 1 baz 2]) ;= null
 
     find:
-    (fn* args (let {i: (apply indexWhere args)}
+    (fn* args (define {i: (apply indexWhere args)}
                 (if (< i 0) null (i (last args)))))
 
 ### `findLast`
 
     findLast:
-    (fn* args (let {i: (apply lastIndexWhere args)}
+    (fn* args (define {i: (apply lastIndexWhere args)}
                 (if (< i 0) null (i (last args)))))
 
 ### `indexOf`
@@ -671,14 +671,14 @@ If iteration order is significant, use the stream function `forEach!` instead.
     indexOf:
     (fn* args
       (assertArgs args "expected 2 or 3 args"
-        (let {x: (hd args)} (apply indexWhere (cons (\ = _ x) (tl args))))))
+        (define {x: (hd args)} (apply indexWhere (cons (\ = _ x) (tl args))))))
 
 ### `lastIndexOf`
 
     lastIndexOf:
     (fn* args
       (assertArgs args "expected 2 or 3 args"
-        (let {x: (hd args)} (apply lastIndexWhere (cons (\ = _ x) (tl args))))))
+        (define {x: (hd args)} (apply lastIndexWhere (cons (\ = _ x) (tl args))))))
 
 ### `indexesOf`
 
@@ -699,10 +699,10 @@ If iteration order is significant, use the stream function `forEach!` instead.
     (fn* args
       (case= (len args)
         2 (indexWhere (0 args) 0 (1 args))
-        3 (let {f: (0 args), i: (1 args), xs: (2 args)}
+        3 (define {f: (0 args), i: (1 args), xs: (2 args)}
             (assertArgs (and (integer? i) (<= 0 i)) "not a nonnegative integer"
                         (array? xs) "not an array"
-              (let {max: (len xs)}
+              (define {max: (len xs)}
                 (loopAs next {i} (if (>= i max) -1
                                      (f (i xs)) i
                                      (next {i: (inc i)}))))))
@@ -714,7 +714,7 @@ If iteration order is significant, use the stream function `forEach!` instead.
     (fn* args
       (case= (len args)
         2 (lastIndexWhere (0 args) (dec (len (1 args))) (1 args))
-        3 (let {f: (0 args), i: (1 args), xs: (2 args)}
+        3 (define {f: (0 args), i: (1 args), xs: (2 args)}
             (assertArgs (and (integer? i) (<= 0 i)) "not a nonnegative integer"
                         (array? xs) "not an array"
               (loopAs next {i: (min i (dec (len xs)))}
@@ -733,7 +733,7 @@ If iteration order is significant, use the stream function `forEach!` instead.
 
     indexesWhere:
     (fn- f xs
-      (let {max: (len xs)}
+      (define {max: (len xs)}
         (loopAs next {i: 0, out: []}
           (if (< i max)
               (next {i: (inc i), out: (if (f (i xs)) (snoc out i) out)})
@@ -747,7 +747,7 @@ If iteration order is significant, use the stream function `forEach!` instead.
 
     count:
     (fn- f xs
-      (let {max: (len xs)}
+      (define {max: (len xs)}
         (loopAs next {i: 0, n: 0}
           (if (< i max)
               (next {i: (inc i), n: (if (f (i xs)) (inc n) n)})
@@ -757,7 +757,7 @@ If iteration order is significant, use the stream function `forEach!` instead.
 
     countBy:
     (fn- f xs
-      (let {max: (len xs)}
+      (define {max: (len xs)}
         (loopAs next {i: 0, out: {}}
           (if (< i max)
               (next {i: (inc i), out: (update (f (i xs)) inc 0 out)})
@@ -767,7 +767,7 @@ If iteration order is significant, use the stream function `forEach!` instead.
 
     groupBy:
     (fn- f xs
-      (let {max: (len xs)}
+      (define {max: (len xs)}
         (loopAs next {i: 0, out: {}}
           (if (< i max)
               (next { i: (inc i),

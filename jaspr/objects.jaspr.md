@@ -12,7 +12,7 @@
     hasKeys?:
     (fn* args
       (assertArgs args "expected at least one argument"
-        (let {obj: (last args)}
+        (define {obj: (last args)}
           (all? (\ hasKey? _ obj) (init args)))))
 
 ## `withKey`

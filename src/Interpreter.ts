@@ -275,7 +275,7 @@ function* macroExpandGen(
           env, () => ({action: 'macroexpand', code: (<any>code)[i]}), out, i)
       }
       
-      // Optimize away redundant let expressions
+      // Optimize away redundant define expressions
       if (out.length === 1) {
         let fn = out[0]
         if (fn instanceof Deferred) fn = <Jaspr>(yield fn)
@@ -292,7 +292,7 @@ function* macroExpandGen(
               cb(it instanceof Deferred ? yield it : it)
               break
             }
-            // Redundant case #2: Bind only constants and other variables
+            // Redundant case #2: Bind only constants and preexisting names
             else if (_.every(names, k => isLegalName(k) &&
                 (isLiteral(defs[k]) || typeof defs[k] === 'string') &&
                 !(''+defs[k] in defs))) {
@@ -792,7 +792,7 @@ function* evalGen(
       }
     }
 
-    // let
+    // define
     else if (
       isArray(hd) && hd.length === 4 && code.length === 1 &&
       (hd[0] instanceof Deferred ? yield <any>hd[0] : hd[0]) === Names.closure &&

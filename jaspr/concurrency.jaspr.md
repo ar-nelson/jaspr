@@ -88,8 +88,8 @@ TODO: Implement `onCancel`.
     (fn* exprs
       (if (no exprs) null
           (p.is? 1 (len exprs)) (hd exprs)
-          `[let {.a.: ~(hd exprs), .b.: (awaitAll ~@(tl exprs))}
-                (p.then .a. .b.)]))
+          `[define {.a.: ~(hd exprs), .b.: (awaitAll ~@(tl exprs))}
+                   (p.then .a. .b.)]))
 
 ### `choice`
 
@@ -101,13 +101,13 @@ TODO: Implement `onCancel`.
 
 Choice junctions are the only way to cancel fibers. A typical use case is to create timeouts. For example, `(choice (sleep 100) (recv! c))` will receive on `c` with a 100ms timeout, stopping the `recv!` operation once the timeout is up. `(choice (sleep 100) (send! x c))` will attempt to send `x` on `c` with a 100ms timeout, but, if nothing receives it, the `send!` will be canceled and a future `(recv! c)` will not receive `x`.
 
->     (let {ch: (chan!)}
+>     (define {ch: (chan!)}
 >       (await (choice (send! 'canceled ch) (sleep 100))
 >              (do (send! 'ok ch) ('value (recv! ch))))) ;= “ok”
 
 Canceling a branch of a choice junction also cancels all branches of any choice junctions nested inside that branch.
 
->     (let {ch: (chan!)}
+>     (define {ch: (chan!)}
 >       (await (choice (choice (send! 'canceled1 ch) (send! 'canceled2 ch))
 >                      (sleep 100))
 >              (do (send! 'ok ch) ('value (recv! ch))))) ;= “ok”
@@ -163,12 +163,12 @@ Every call to `chan!` creates a unique object, even though all channels are stru
 
 `(send! msg chan)` sends `msg` on the channel `chan`, then blocks until either `msg` is received or `chan` is closed. It returns `true` if `msg` was successfully received, `false` if `chan` was closed.
 
->     (let {c: (chan!)} (do (recv! c) (send! 42 c))) ;= true
->     (let {c: (chan!)} (await (close! c) (send! 42 c))) ;= false
+>     (define {c: (chan!)} (do (recv! c) (send! 42 c))) ;= true
+>     (define {c: (chan!)} (await (close! c) (send! 42 c))) ;= false
 
 Unlike other Jaspr functions, `send!` is strict, not lazy. If `msg` or any element of `msg` is unresolved, `send!` blocks until `msg` has finished resolving. While `msg` is unresolved, the send has technically not yet occurred, so `recv!` calls will not yet be able to receive `msg`.
 
->     (let {c: (chan!)}
+>     (define {c: (chan!)}
 >       (do (send! ([] 1 (await (sleep 200) 2)) c)
 >           (send! 42 c)
 >           (await (recv! c)
@@ -185,11 +185,11 @@ Unlike other Jaspr functions, `send!` is strict, not lazy. If `msg` or any eleme
 
 `(recv! chan)` blocks until it receives a message on `chan` or `chan` is closed. If a message `value` is successfully received, `recv!` returns `{value, done: false}`. If `chan` is closed before a message can be received, `recv!` returns `{value: null, done: true}`.
 
->     (let {c: (chan!)}
+>     (define {c: (chan!)}
 >       (do (send! 42 c)
 >           (recv! c))) ;= {value: 42, done: false}
 
->     (let {c: (chan!)}
+>     (define {c: (chan!)}
 >       (do (close! c)
 >           (recv! c))) ;= {value: null, done: true}
 
@@ -204,8 +204,8 @@ Unlike other Jaspr functions, `send!` is strict, not lazy. If `msg` or any eleme
 
 Closes a channel. Returns `true` if the channel was not yet closed, or `false` if the channel was already closed (and the `close!` call did nothing).
 
->     (let {c: (chan!)} (close! c)) ;= true
->     (let {c: (chan!)} (await (close! c) (close! c))) ;= false
+>     (define {c: (chan!)} (close! c)) ;= true
+>     (define {c: (chan!)} (await (close! c) (close! c))) ;= false
 
 `close!` raises a `BadArgs` error if its argument is not a channel.
 
@@ -218,8 +218,8 @@ Closes a channel. Returns `true` if the channel was not yet closed, or `false` i
 
 Returns a boolean indicating whether its argument, a channel, is closed.
 
->     (let {c: (chan!)} (closed? c)) ;= false
->     (let {c: (chan!)} (await (close! c) (closed? c))) ;= true
+>     (define {c: (chan!)} (closed? c)) ;= false
+>     (define {c: (chan!)} (await (close! c) (closed? c))) ;= true
 
 `closed?` raises a `BadArgs` error if its argument is not a channel.
 
@@ -242,14 +242,14 @@ Returns a boolean indicating whether its argument, a channel, is closed.
 
 `(distribute! source sinks)` continually receives on the channel `source` and sends each message on every channel in the array `sinks` in parallel. It blocks until `source` closes and at least one sink has received every message, then returns `null`.
 
->     (let {in: (chan!), out1: (chan!), out2: (chan!)}
+>     (define {in: (chan!), out1: (chan!), out2: (chan!)}
 >       (awaitAll (await (send! 'foo in)
 >                        (send! 'bar in)
 >                        (close! in))
 >                 (distribute! in ([] out1 out2))
->                 (let {a: ('value (recv! out1)), b: ('value (recv! out2))}
+>                 (define {a: ('value (recv! out1)), b: ('value (recv! out2))}
 >                   (await a b
->                     (let {c: ('value (recv! out1)), d: ('value (recv! out2))}
+>                     (define {c: ('value (recv! out1)), d: ('value (recv! out2))}
 >                       ([] a b c d (closed? out1) (closed? out2)))))))
 >     ;= ["foo", "foo", "bar", "bar", false, false]
 
@@ -263,7 +263,7 @@ Returns a boolean indicating whether its argument, a channel, is closed.
                   (array? sinks) "not an array"
                   (all? chan? sinks) "sink is not a channel"
         (loopAs next {}
-          (let {recvd: (recv! source)}
+          (define {recvd: (recv! source)}
             (if (no ('done recvd))
                 (await (awaitOne (map (\ send! ('value recvd) _) sinks))
                        (next {})))))))
@@ -272,13 +272,13 @@ Returns a boolean indicating whether its argument, a channel, is closed.
 
 `(drain! source sink)` continually receives on the channel `source` and sends each message on the channel `sink`. It blocks until `source` closes and `sink` has received every message, then returns `null`.
 
->     (let {in: (chan!), out: (chan!)}
+>     (define {in: (chan!), out: (chan!)}
 >       (awaitAll (await (send! 'foo in)
 >                        (send! 'bar in)
 >                        (close! in))
 >                 (drain! in out)
->                 (let {a: ('value (recv! out))}
->                   (await a (let {b: ('value (recv! out))}
+>                 (define {a: ('value (recv! out))}
+>                   (await a (define {b: ('value (recv! out))}
 >                     ([] a b (closed? out))))))) ;= ["foo", "bar", false]
 
 `drain!` raises a `BadArgs` error if either `source` or `sink` is not a channel.
@@ -290,7 +290,7 @@ Returns a boolean indicating whether its argument, a channel, is closed.
       (assertArgs (chan? source) "source is not a channel"
                   (chan? sink) "sink is not a channel"
         (loopAs next {}
-          (let {recvd: (recv! source)}
+          (define {recvd: (recv! source)}
             (if (no ('done recvd))
                 (if (send! ('value recvd) sink)
                     (next {})))))))
@@ -299,10 +299,10 @@ Returns a boolean indicating whether its argument, a channel, is closed.
 
 `(sendAll! msgs chan)` sends all of the elements of the array `msgs` on the channel `chan`, in order, then returns a boolean representing whether the channel was closed.
 
->     (let {out: (chan!)}
+>     (define {out: (chan!)}
 >       (awaitAll (sendAll! '[foo bar] out)
->                 (let {a: ('value (recv! out))}
->                   (await a (let {b: ('value (recv! out))}
+>                 (define {a: ('value (recv! out))}
+>                   (await a (define {b: ('value (recv! out))}
 >                     ([] a b (closed? out))))))) ;= ["foo", "bar", false]
 
 `sendAll!` raises a `BadArgs` error if `msgs` is not an array or `chan` is not a channel.
@@ -328,7 +328,7 @@ Returns a boolean indicating whether its argument, a channel, is closed.
 
     refServer!:
     (fn- chan value
-      (let {next: (recv! chan), msg: ('value next)}
+      (define {next: (recv! chan), msg: ('value next)}
         (if ('done next) null
             (hasKey? 'set msg) (refServer! chan ('set msg))
             (hasKey? 'get msg) (do (send! value ('get msg))
@@ -336,7 +336,7 @@ Returns a boolean indicating whether its argument, a channel, is closed.
             (refServer! chan value))))
     ref!:
     (fn- value
-      (let {chan: (chan!)}
+      (define {chan: (chan!)}
         (do (refServer! chan value)
             {ref: chan})))
 
@@ -349,7 +349,7 @@ Returns a boolean indicating whether its argument, a channel, is closed.
     get!:
     (fn- ref
       (assertArgs (ref? ref) “not a ref”
-        (let {chan: (chan!)}
+        (define {chan: (chan!)}
           (do (send! {get: chan} ('chan ref))
               ('value (recv! chan))))))
 
@@ -367,12 +367,12 @@ Returns a boolean indicating whether its argument, a channel, is closed.
 #### `queue!`
 
     queueServer!:
-    (fn- i o (let {next: (recv! i), msg: ('value next)}
+    (fn- i o (define {next: (recv! i), msg: ('value next)}
                (if (no ('done next))
                    (do (send! msg o) (queueServer! i o)))))
 
     queue!:
-    (fn- (let {enqueue: (chan!), dequeue: (chan!)}
+    (fn- (define {enqueue: (chan!), dequeue: (chan!)}
            (do (queueServer! enqueue dequeue)
                {enqueue dequeue})))
 

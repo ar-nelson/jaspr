@@ -324,9 +324,9 @@ Greater-than-or-equal operator. Returns `true` if all of its arguments are order
       (case= (len ns)
         0 0
         1 (0 ns)
-        2 (let {a:(0 ns) b:(1 ns)}
+        2 (define {a:(0 ns) b:(1 ns)}
             (if (> a b) a b))
-        (let {half: (floor (div (len ns) 2))}
+        (define {half: (floor (div (len ns) 2))}
           (max (apply max (p.arraySlice 0 half ns))
                (apply max (p.arraySlice half (len ns) ns))))))
 
@@ -337,9 +337,9 @@ Greater-than-or-equal operator. Returns `true` if all of its arguments are order
       (case= (len ns)
         0 0
         1 (0 ns)
-        2 (let {a:(0 ns) b:(1 ns)}
+        2 (define {a:(0 ns) b:(1 ns)}
             (if (< a b) a b))
-        (let {half: (floor (div (len ns) 2))}
+        (define {half: (floor (div (len ns) 2))}
           (min (apply min (p.arraySlice 0 half ns))
                (apply min (p.arraySlice half (len ns) ns))))))
 

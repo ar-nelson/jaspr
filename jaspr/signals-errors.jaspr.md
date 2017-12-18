@@ -26,7 +26,7 @@ The primary use of signals in Jaspr is to raise and handle _errors_. A Jaspr err
 
 - `NoBinding`: Attempting to look up a name failed. Has `name` key.
 - `NoKey`: Attempted to look up a nonexistent key in an array or object. Has `key` and `in` keys.
-- `NoMatch`: Value didn't match any patterns in a `case` or `let*`. Has `value` and `patterns` keys.
+- `NoMatch`: Value didn't match any patterns in a `case` or `let`. Has `value` and `patterns` keys.
 - `NoPrimitive`: `$`-name is not a valid primitive special form. Has `callee` and `args` keys.
 - `BadName`: Attempted to bind a name that contains special characters or is otherwise invalid.
 - `BadArgs`: Arguments to a callable were wrong. This can cover a lot of cases; it usually includes `fn` and `args` keys for disambiguation.
@@ -71,7 +71,7 @@ If a `handler` raises a signal, that signal is handled by `catch`'s parent signa
 
 `catch` only resolves once its return value has _deeply_ resolved, to guarantee that uncatchable signals aren't raised after `catch` has already returned. However, if `catch` spawns fibers that aren't incorporated into its return value---for example, with `do`---and those fibers are still running when `catch` resolves, they will be canceled.
 
->     (let {ch: (chan!), _: (await (sleep 200) (send! 'outer ch))} {
+>     (define {ch: (chan!), _: (await (sleep 200) (send! 'outer ch))} {
 >       returned: (catch (do (await (sleep 100) (raise 'inner)) true)
 >                   x (do (send! x ch) false)),
 >       raised: ('value (recv! ch))
@@ -141,7 +141,7 @@ If `handler` raises a signal, that signal is handled by `catchWith`'s parent sig
 
 `catchWith` only resolves once its return value has _deeply_ resolved, to guarantee that uncatchable signals aren't raised after `catchWith` has already returned. However, if `catchWith` spawns fibers that aren't incorporated into its return value---for example, with `do`---and those fibers are still running when `catchWith` resolves, they will be canceled.
 
->     (let {ch: (chan!), _: (await (sleep 200) (send! 'outer ch))} {
+>     (define {ch: (chan!), _: (await (sleep 200) (send! 'outer ch))} {
 >       returned: (catchWith (fn- x (do (send! x ch) false))
 >                            (do (await (sleep 100) (raise 'inner)) true)),
 >       raised: ('value (recv! ch))
@@ -153,7 +153,7 @@ The pattern-matching `catch` macro is better suited than `catchWith` to most use
 
     macro.catchWith:
     (fn- handler body
-      `[let {.ch.: (chan!) .last.: (getDynamic p.signalHandler) .hfn.: ~handler}
+      `[define {.ch.: (chan!) .last.: (getDynamic p.signalHandler) .hfn.: ~handler}
             (choice ('value (recv! .ch.))
                     (letDynamic p.signalHandler
                                 (fn- x (letDynamic p.signalHandler .last.
@@ -180,7 +180,7 @@ The pattern-matching `resume` macro is better suited than `resumeWith` to most u
 
     macro.resumeWith:
     (fn- handler body
-      `[let {.last.: (getDynamic p.signalHandler) .hfn.: ~handler}
+      `[define {.last.: (getDynamic p.signalHandler) .hfn.: ~handler}
             (letDynamic p.signalHandler
                         (fn- x (letDynamic p.signalHandler .last. (.hfn. x)))
                         ~body)])

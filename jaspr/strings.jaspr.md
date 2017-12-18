@@ -54,7 +54,7 @@ This is not necessarily a JSON representation of `x`; strings will be unquoted w
         0 ""
         1 (p.toString (0 args))
         2 (p.stringConcat (p.toString (0 args)) (p.toString (1 args)))
-        (let {half: (floor (div (len args) 2))}
+        (define {half: (floor (div (len args) 2))}
           (p.stringConcat (apply str (take half args))
                           (apply str (drop half args))))))
 
@@ -141,8 +141,8 @@ This is not necessarily a JSON representation of `x`; strings will be unquoted w
     (fn- suffix s
       (assertArgs (string? suffix) "not a string"
                   (string? s) "not a string"
-        (let { sLen: (p.stringNativeLength s)
-               preLen: (sub sLen (p.stringNativeLength suffix)) }
+        (define { sLen: (p.stringNativeLength s)
+                  preLen: (sub sLen (p.stringNativeLength suffix)) }
           (and (>= preLen 0)
                (p.is? (p.stringNativeIndexOf suffix s preLen) preLen)))))
 

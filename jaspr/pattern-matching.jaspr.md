@@ -3,7 +3,7 @@
 
 # Pattern Matching
 
-The `case`, `fn`, and `let*` macros interpret certain forms as patterns, and match those patterns against values.
+The `case`, `fn`, and `let` macros interpret certain forms as patterns, and match those patterns against values.
 
 ## Patterns
 
@@ -56,7 +56,7 @@ The pattern-matching macros use two internal, unexported functions to generate p
 
     makePatternBindings:
     (fn- pat val
-      (let {
+      (define {
         recur: (\->> (map (\x makePatternBindings (x pat) ([] (quote x) val)))
                      (apply merge))
       } (if (or (null? pat) (boolean? pat) (number? pat) (p.is? pat “_”))
@@ -125,22 +125,22 @@ The pattern-matching macros use two internal, unexported functions to generate p
 
     macro.case:
     (fn* exprs
-      (let {
+      (define {
         valExpr: (hd exprs),
         useLet: (or (array? valExpr) (object? valExpr)),
         val: (if useLet (gensym!) valExpr),
         clauses: (->> (tl exprs)
                       (chunk 2)
                       (mapcat (fn- pair
-                        (let {pat: (0 pair), expr: (1 pair)}
+                        (define {pat: (0 pair), expr: (1 pair)}
                           `[~(makePatternTest pat val)
-                            (let ~(makePatternBindings pat val) ~expr)])))),
+                            (define ~(makePatternBindings pat val) ~expr)])))),
         ifExpr: `[if ~@clauses (raise {
                     err: “NoMatch”,
                     fn: ~(myName),
                     val: ~val
                   })]
-      } (if useLet `[let ~({} val valExpr) ~ifExpr] ifExpr)))
+      } (if useLet `[define ~({} val valExpr) ~ifExpr] ifExpr)))
 
 ## `fn`
 
@@ -154,7 +154,7 @@ The pattern-matching macros use two internal, unexported functions to generate p
 >        . 2 'b
 >        . 3 'c) 2) ;= “b”
 
->     (let {
+>     (define {
 >       recursiveSum: (fn [] 0
 >                       . [x … xs] (add x (recursiveSum xs)))
 >     } (recursiveSum '[1 2 3 4])) ;= 10
@@ -170,44 +170,44 @@ The pattern-matching macros use two internal, unexported functions to generate p
            args (raise { err: “BadArgs”, why: “no pattern match for arguments”,
                          fn: (myName), args }))])
 
-## `let*`
+## `let`
 
-`let*` is the sequential, pattern-matching variant of `let`.
+`let` is the sequential, pattern-matching variant of `define`.
 
-`(let* pat₀ val₀ pat₁ val₁ … patₙ valₙ body)` evaluates `val₀`…`valₙ` in order, matching each pattern `pat` to the corresponding `val`, with the resulting bindings available when evaluating subsequent `val`s. It then returns the result of evaluating `body` with all bindings from all patterns in scope.
+`(let pat₀ val₀ pat₁ val₁ … patₙ valₙ body)` evaluates `val₀`…`valₙ` in order, matching each pattern `pat` to the corresponding `val`, with the resulting bindings available when evaluating subsequent `val`s. It then returns the result of evaluating `body` with all bindings from all patterns in scope.
 
->     (let* 42) ;= 42
+>     (let 42) ;= 42
 
->     (let* x 91
->           x) ;= 91
+>     (let x 91
+>          x) ;= 91
 
->     (let* [x y z] '[1 2 3]
->           y) ;= 2
+>     (let [x y z] '[1 2 3]
+>          y) ;= 2
 
->     (let* x 1
->           y 2
->           {x y}) ;= {x: 1, y: 2}
+>     (let x 1
+>          y 2
+>          {x y}) ;= {x: 1, y: 2}
 
->     (let* [x … xs] '[1 2 3]
->           {x xs}) ;= {x: 1, xs: [2 3]}
+>     (let [x … xs] '[1 2 3]
+>          {x xs}) ;= {x: 1, xs: [2 3]}
 
-Unlike `let`, `let*` does not allow recursive definitions.
+Unlike `define`, `let` does not allow recursive definitions.
 
-`let*` raises a `BadArgs` error at macro expansion time if it has an even number of arguments, a `BadPattern` error at macro expansion time if one of `pat₀`…`patₙ` is not a legal pattern, or a `NoMatch` error at runtime if any `val` does not match its corresponding pattern.
+`let` raises a `BadArgs` error at macro expansion time if it has an even number of arguments, a `BadPattern` error at macro expansion time if one of `pat₀`…`patₙ` is not a legal pattern, or a `NoMatch` error at runtime if any `val` does not match its corresponding pattern.
 
 ---
 
-    macro.let*:
+    macro.let:
     (fn body body
       . pat val … rest
         `[case ~val
-           ~pat (let* ~@rest)
+           ~pat (let ~@rest)
            .value. (raise { err: “NoMatch”, fn: ~(myName),
                             pattern: ~(quote pat), value: .value. })])
 
 ## `awaitLet`
 
-`awaitLet` is a combination of `let*` and `await`.
+`awaitLet` is a combination of `let` and `await`.
 
 `(awaitLet pat₀ val₀ pat₁ val₁ … patₙ valₙ body)` evaluates `val₀`…`valₙ` in order, matching each pattern `pat` to the corresponding `val`, with the resulting bindings available when evaluating subsequent `val`s.
 
@@ -228,7 +228,7 @@ Unlike `let`, `let*` does not allow recursive definitions.
 
 Each `val` is only evaluated after the previous `val` has resolved, as in `await`. Once all `val`s have resolved, `awaitLet` returns the result of evaluating `body` with all bindings from all patterns in scope.
 
->     (let {c: (chan!)}
+>     (define {c: (chan!)}
 >       (do (await (send! 10 c) (send! 20 c) (send! 30 c))
 >           (awaitLet {value: x} (recv! c)
 >                     {value: y} (recv! c)
@@ -242,7 +242,7 @@ Each `val` is only evaluated after the previous `val` has resolved, as in `await
     macro.awaitLet:
     (fn body body
       . pat val … rest
-        `[let {.awaitLet.: ~val}
+        `[define {.awaitLet.: ~val}
            (await .awaitLet.
                   (case .awaitLet.
                      ~pat (awaitLet ~@rest)
@@ -251,7 +251,7 @@ Each `val` is only evaluated after the previous `val` has resolved, as in `await
 
 ## Exports
 
-    $export: {case, fn, let*}
+    $export: {case, fn, let, awaitLet, letAwait:awaitLet, 🏷:let}
 
 [☙ String Operations][prev] | [🗏 Table of Contents][toc] | [Signals and Error Handling ❧][next]
 :---|:---:|---:

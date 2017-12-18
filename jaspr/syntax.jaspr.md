@@ -255,7 +255,7 @@ Jaspr's core syntax is made up of several _special forms_ with unique evaluation
 
 ### `closure`
 
-`(closure bindings code)` constructs a function that closes over the current scope. `bindings` is an object containing bindings to add to the function's scope (this is how `let` is implemented), and `code` is the function's code, which is not evaluated.
+`(closure bindings code)` constructs a function that closes over the current scope. `bindings` is an object containing bindings to add to the function's scope (this is how `define` and `let` are implemented), and `code` is the function's code, which is not evaluated.
 
 `closure` is a low-level special form; the forms `let`, `fn`, and `fn*` cover most practical uses of it, and should be used instead of `closure` in most situations.
 
@@ -316,30 +316,32 @@ Due to a bootstrapping problem, `fn*`'s definition uses cumbersome `if` statemen
         (raise { err: 'BadArgs, why: “fn* takes exactly 2 arguments”,
                 fn: (myName), args: $args })))
 
-### `let`
+### `define`
 
-`(let {name₀: x₀, name₁: x₁, … nameₙ: xₙ} body)` evaluates `body` in a scope in which the names `name₀`…`nameₙ` are bound to the values `x₀`…`xₙ`. It is equivalent to creating a new function with the bindings, then immediately calling the function.
+`(define {name₀: x₀, name₁: x₁, … nameₙ: xₙ} body)` evaluates `body` in a scope in which the names `name₀`…`nameₙ` are bound to the values `x₀`…`xₙ`. It is equivalent to creating a new function with the bindings, then immediately calling the function.
 
->     (let {x: 1} x) ;= 1
->     (let {x: (let {y: 2} y)} x) ;= 2
->     (let {a: 1, b: 2} ([] a b)) ;= [1, 2]
+>     (define {x: 1} x) ;= 1
+>     (define {x: (define {y: 2} y)} x) ;= 2
+>     (define {a: 1, b: 2} ([] a b)) ;= [1, 2]
 
 Bindings are evaluated recursively: the value of each binding is evaluated in a scope containing all of the bindings.
 
->     (let {a: b, b: c, c: 3} a) ;= 3
+>     (define {a: b, b: c, c: 3} a) ;= 3
 
 Context prefixes are allowed, but the only supported contexts are `value`, `macro`, and `check`.
 
->     (let {macro.app: (closure {} ([] (0 $args) (1 $args)))}
+>     (define {macro.app: (closure {} ([] (0 $args) (1 $args)))}
 >          (app 1 '[a b])) ;= “b”
+
+`define` is equivalent to `letrec` in other Lisps. If neither recursion nor non-value definitions (macros) are needed, `let` should usually be used instead of `define`.
 
 ---
 
-    macro.let:
+    macro.define:
     (fn* args
       (assertArgs
-        (p.is? 2 (p.arrayLength args)) “let takes exactly 2 arguments”
-        (p.is? 'object (p.typeOf (0 args))) “let bindings must be an object”
+        (p.is? 2 (p.arrayLength args)) “define takes exactly 2 arguments”
+        (p.is? 'object (p.typeOf (0 args))) “define bindings must be an object”
         `[(closure ~(0 args) ~(1 args))]))
 
 ### `if`
@@ -373,12 +375,12 @@ If no `pred` evaluated to a truthy value, `else` is evaluated. If `else` is miss
 
     macro.if:
     (fn* argv
-      (let {argc: (p.arrayLength argv)}
+      (define {argc: (p.arrayLength argv)}
         (assertArgs (p.<= 2 argc) "expected 2 or more arguments"
-          (let { pred: (0 argv), then: (1 argv),
-                 else: (p.if (p.< argc 4)
-                         (p.if (p.is? argc 3) (2 argv) null)
-                           `[if ~@(p.arraySlice 2 argc argv)]) }
+          (define { pred: (0 argv), then: (1 argv),
+                    else: (p.if (p.< argc 4)
+                            (p.if (p.is? argc 3) (2 argv) null)
+                              `[if ~@(p.arraySlice 2 argc argv)]) }
 
 `if` performs a simple optimization by removing inaccessible branches when the predicate is a constant.
 
@@ -408,10 +410,10 @@ If no `expr` evaluates to a falsy value, `and` evaluates to the last `expr` in i
 
     macro.and:
     (fn* exprs
-      (let {l: (p.arrayLength exprs)}
+      (define {l: (p.arrayLength exprs)}
         (if (p.is? l 1) (0 exprs)
-            exprs `[let {.x.: ~(0 exprs)}
-                        (if .x. (and ~@(p.arraySlice 1 l exprs)) .x.)]
+            exprs `[define {.x.: ~(0 exprs)}
+                           (if .x. (and ~@(p.arraySlice 1 l exprs)) .x.)]
                    true)))
 
 ### `or`
@@ -432,10 +434,10 @@ If no `expr` evaluates to a truthy value, `or` evaluates to the last `expr` in i
 
     macro.or:
     (fn* exprs
-      (let {l: (p.arrayLength exprs)}
+      (define {l: (p.arrayLength exprs)}
         (if (p.is? l 1) (0 exprs)
-            exprs `[let {.x.: ~(0 exprs)}
-                        (if .x. .x. (or ~@(p.arraySlice 1 l exprs)))]
+            exprs `[define {.x.: ~(0 exprs)}
+                           (if .x. .x. (or ~@(p.arraySlice 1 l exprs)))]
                    false)))
 
 ### `fn-`
@@ -454,28 +456,28 @@ The resulting function raises a `BadArgs` error if it is called with a different
 
     macro.fn-:
     (fn* fnArgs
-      (let {arity: (p.subtract (p.arrayLength fnArgs) 1)}
+      (define {arity: (p.subtract (p.arrayLength fnArgs) 1)}
         (assertArgs (p.<= 0 arity) “no function body”
-          (let {
+          (define {
             loop: (fn* args
-                    (let {i: (0 args), scope: (1 args)}
+                    (define {i: (0 args), scope: (1 args)}
                       (if (p.is? i arity)
                           scope
                           (loop (p.add i 1)
                                 (p.objectInsert (i fnArgs) `[~i ~argsName] scope)))))
           } `[closure {}
-               (let ~({} argsName '$args)
+               (define ~({} argsName '$args)
                  (assertArgs
                    (p.is? (p.arrayLength ~argsName) ~arity)
                      ~([] “” (p.stringConcat “expected ”
                                 (p.stringConcat (p.toString arity) “ argument(s)”)))
-                     (let ~(loop 0 {}) ~(-1 fnArgs))))]))))
+                     (define ~(loop 0 {}) ~(-1 fnArgs))))]))))
 
 ### `macroexpand`
 
 Macro expands its argument in the current scope.
 
->     (let {macro.to42: (fn- x 42)} (macroexpand '(to42 x))) ;= 42
+>     (define {macro.to42: (fn- x 42)} (macroexpand '(to42 x))) ;= 42
 
 ---
 
@@ -485,7 +487,7 @@ Macro expands its argument in the current scope.
 
 Evaluates its argument in the current scope. Note that `eval` performs evaluation _without_ macro expansion.
 
->     (let {to42: (fn- x 42)} (eval '(to42 null))) ;= 42
+>     (define {to42: (fn- x 42)} (eval '(to42 null))) ;= 42
 
 ---
 
@@ -510,7 +512,7 @@ Evaluates its argument in the current scope. Note that `eval` performs evaluatio
 
 Looks up a name in the current scope, in a context other than the default (`value`). For example, `(contextGet macro foo)` returns the macro `foo`.
 
->     (let {macro.to42: (fn- x 42)} ((contextGet macro to42) null)) ;= 42
+>     (define {macro.to42: (fn- x 42)} ((contextGet macro to42) null)) ;= 42
 
 Raises a `BadArgs` error at macro expansion time if either argument is not a string.
 
@@ -536,7 +538,7 @@ The default implementation of `inspect!` is to pretty-print `x` in a syntax-high
 
 `do`, `await`, `awaitAll`, `choice`, `chan!`, `send!`, `recv!`, `close!`, and `closed?` are part of the core language; these deal with concurrency, channels, and message passing, and are defined in [Concurrency and Channels](concurrency.jaspr.md).
 
-`fn`, `case`, `let*`, and `awaitLet` are also core parts of Jaspr syntax; these are defined in [Pattern Matching](pattern-matching.jaspr.md).
+`fn`, `case`, `let`, and `awaitLet` are also core parts of Jaspr syntax; these are defined in [Pattern Matching](pattern-matching.jaspr.md).
 
 ## Naming Conventions
 
@@ -561,10 +563,10 @@ If a macro uses a string as a marker to separate parts of an array (for example,
 ## Exports
 
     $export: {
-      closure raise myName assertArgs let fn* if and or fn- macroexpand eval
+      closure raise myName assertArgs define fn* if and or fn- macroexpand eval
       apply contextGet inspect!
 
-      💥:raise 🏷:let &&:and ||:or 💬:inspect!
+      💥:raise &&:and ||:or 💬:inspect!
     }
 
 [☙ Table of Contents][toc] | [🗏 Table of Contents][toc] | [Data Types ❧][next]

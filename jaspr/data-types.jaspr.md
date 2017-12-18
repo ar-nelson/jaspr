@@ -293,7 +293,7 @@ In many cases, the lambda + threading macros `\->` and `\->>` can express functi
 
     comp: (fn* fs (if (no fs) id
                       (p.is? 1 (len fs)) (hd fs)
-                      (let {f: (hd fs), g: (apply comp (tl fs))}
+                      (define {f: (hd fs), g: (apply comp (tl fs))}
                            (fn* xs (f (apply g xs))))))
 
 #### `curry`
@@ -337,7 +337,7 @@ Takes a _curried_ function `f` of arity _n_ that itself returns an unary functio
 
     partial:
     (fn* fArgs (assertArgs fArgs “no function”
-                 (let {f: (hd fArgs), args: (tl fArgs)}
+                 (define {f: (hd fArgs), args: (tl fArgs)}
                    (fn* args2 (apply f (p.arrayConcat args args2))))))
 
 ### Channels
@@ -387,7 +387,7 @@ Returns a boolean value indicating whether or not its argument is a dynamic vari
 
 `(letDynamic dyn₀ val₀ dyn₁ val₁ … dynₙ valₙ body)` evaluates `body` with the dynamic variables `dyn₀`…`dynₙ` bound to the corresponding `val`s. `letDynamic` raises a `BadArgs` error if it does not have an odd number of arguments, or if any `dyn` is not a dynamic variable.
 
->     (let {dyn: (dynamic! null)}
+>     (define {dyn: (dynamic! null)}
 >          (letDynamic dyn 91 (getDynamic dyn))) ;= 91
 
     macro.letDynamic:
@@ -421,7 +421,7 @@ A _path_ is a sequence of indexes (integers or strings) that identifies an eleme
     get:
     (fn* args
       (assertArgs args "expected at least one argument"
-        (let {found: (apply getOr (cons notFound args))}
+        (define {found: (apply getOr (cons notFound args))}
           (if (= found notFound)
               (raise { err: 'NoKey, why: "path not found",
                        path: (init args), in: (last args), fn: (myName) })
@@ -432,7 +432,7 @@ A _path_ is a sequence of indexes (integers or strings) that identifies an eleme
     getOr:
     (fn* args
       (assertArgs (<= 2 (len args)) "expected at least two arguments"
-        (let {default: (0 args), key: (1 args), struct: (-1 args)}
+        (define {default: (0 args), key: (1 args), struct: (-1 args)}
             (if (= 2 (len args)) struct
                 (assertArgs (or (string? key) (integer? key))
                             "path element is not string or integer"
@@ -447,7 +447,7 @@ A _path_ is a sequence of indexes (integers or strings) that identifies an eleme
     has?:
     (fn* args
       (assertArgs (<= 2 (len args)) "expected at least two arguments"
-        (let {key: (hd args), struct: (-1 args)}
+        (define {key: (hd args), struct: (-1 args)}
           (assertArgs (or (string? key) (integer? key))
                       "path element is not string or integer"
             (if (= 2 (len args))
@@ -464,11 +464,11 @@ A _path_ is a sequence of indexes (integers or strings) that identifies an eleme
     put:
     (fn* args
       (assertArgs (<= 2 (len args)) "expected at least two arguments"
-        (let {value: (0 args), key: (1 args), struct: (-1 args)}
+        (define {value: (0 args), key: (1 args), struct: (-1 args)}
           (if (= 2 (len args))
                 value
               (has? key struct)
-                (let { x: (apply put (cons value (snoc (slice 1 -1 args)
+                (define { x: (apply put (cons value (snoc (slice 1 -1 args)
                                                        (key struct)))) }
                   (if (array? struct)
                       (cat (take key struct) ([] value) (drop (inc key) struct))
@@ -538,14 +538,14 @@ Otherwise, `a` and `b` are structurally equal if they are identical (reference/v
       (or (p.is? a b)
           (and (array? a) (array? b)
                (p.is? (len a) (len b))
-               (let {max: (len a),
+               (define {max: (len a),
                      elEq: (fn- i (or (p.is? i max)
                                       (and (eq? (i a) (i b))
                                            (elEq (p.add i 1)))))}
                     (elEq 0)))
           (and (object? a) (object? b)
                (no (magic? a)) (no (magic? b))
-               (let {aks: (keys a), bks: (keys b), max: (len aks),
+               (define {aks: (keys a), bks: (keys b), max: (len aks),
                      keyEq: (fn- i (or (p.is? i max)
                                        (and (hasKey? (i aks) b)
                                             (hasKey? (i bks) a)

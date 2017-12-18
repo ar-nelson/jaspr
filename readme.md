@@ -7,17 +7,17 @@ A new programming language. Jaspr is **minimal**, **functional**, and **concurre
 quicksort:
 (fn []  []
   . [x] ([] x)
-  . xs  (let* pivot  (-> xs len (div 2) floor)
-              y      (pivot xs)
-              choose (fn p x
-                       (let {k: (if (< x y) 'lt
-                                    (> x y) 'gt
-                                    (= x y) 'eq
-                                    (raise {err: “NotComparable”, x, y}))}
-                            (update (λ cons x _) k p)))
-              {lt eq gt} (reduce choose {lt: [], eq: [], gt: []} xs)
+  . xs  (let pivot (→ xs len (÷ 2) floor)
+             y     (pivot xs)
+             part  (fn parts x
+                     (let key (if (< x y) 'lt
+                                  (> x y) 'gt
+                                  (= x y) 'eq
+                                  (raise {err: “NotComparable”, x, y}))
+                          (update (λ cons x _) key parts)))
+             {lt eq gt} (reduce part {lt: [], eq: [], gt: []} xs)
 
-              (cat (quicksort lt) eq (quicksort gt))))
+             (cat (quicksort lt) eq (quicksort gt))))
 ```
 
 What?
@@ -34,7 +34,7 @@ Jaspr is a functional Lisp, in the style of Clojure. All data in Jaspr is immuta
 | `null ; comment` | `null` |
 | `null // comment` | `null` |
 
-Strings are evaluated as symbols unless they are quoted (the empty string is the quote macro). There is no string/symbol split, because a Jaspr value must be one of the [6 JSON data types][json].
+Strings are evaluated as symbols unless they are quoted (the empty string is the quote macro). There is no string/symbol split, because all Jaspr values must be one of the [6 JSON data types][json].
 
 Evaluation is concurrent by default: function arguments and data structure elements have no set evaluation order, but are each evaluated in their own fibers (lightweight threads). This is similar to lazy evaluation in languages like Haskell, except that even unused subexpressions will always be evaluated eventually.
 
