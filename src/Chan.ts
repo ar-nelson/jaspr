@@ -4,7 +4,7 @@ import {remove} from 'lodash'
 
 class Chan {
   sendQueue: [Jaspr, (sent: boolean) => void][] = []
-  recvQueue: Array<(err?: JasprError, val?: Jaspr) => void> = []
+  recvQueue: Array<(val: {value: Jaspr, done: boolean}) => void> = []
   magicObject: JasprObject
   closed = false
 
@@ -15,7 +15,7 @@ class Chan {
   send(msg: Jaspr, cb: (sent: boolean) => void): (() => void) | null {
     if (this.closed) { cb(false); return null }
     if (this.recvQueue.length > 0) {
-      (<any>this.recvQueue.shift())(undefined, msg)
+      (<any>this.recvQueue.shift())({value: msg, done: false})
       cb(true)
       return null
     } else {
@@ -25,15 +25,14 @@ class Chan {
     }
   }
 
-  recv(cb: (err?: JasprError, val?: Jaspr) => void): (() => void) | null {
+  recv(cb: (val: {value: Jaspr, done: boolean}) => void): (() => void) | null {
     if (this.closed) {
-      cb({ err: 'ChanClosed', why: 'recv on closed channel',
-           chan: this.magicObject })
+      cb({value: null, done: true})
       return null
     }
     if (this.sendQueue.length > 0) {
       const [msg, sendCb] = <any>this.sendQueue.shift()
-      cb(undefined, msg)
+      cb({value: msg, done: false})
       sendCb(true)
       return null
     } else {
@@ -46,10 +45,7 @@ class Chan {
     if (this.closed) return false
     this.closed = true
     for (let [_, cb] of this.sendQueue) cb(false)
-    for (let cb of this.recvQueue) cb({
-      err: 'ChanClosed', why: 'channel already closed',
-      chan: this.magicObject
-    })
+    for (let cb of this.recvQueue) cb({value: null, done: true})
     this.sendQueue = []
     this.recvQueue = []
     return true

@@ -536,7 +536,7 @@ The default implementation of `inspect!` is to pretty-print `x` in a syntax-high
 
 `do`, `await`, `awaitAll`, `choice`, `chan!`, `send!`, `recv!`, `close!`, and `closed?` are part of the core language; these deal with concurrency, channels, and message passing, and are defined in [Concurrency and Channels](concurrency.jaspr.md).
 
-`fn`, `case`, and `let*` are also core parts of Jaspr syntax; these are defined in [Pattern Matching](pattern-matching.jaspr.md).
+`fn`, `case`, `let*`, and `awaitLet` are also core parts of Jaspr syntax; these are defined in [Pattern Matching](pattern-matching.jaspr.md).
 
 ## Naming Conventions
 
@@ -564,7 +564,7 @@ If a macro uses a string as a marker to separate parts of an array (for example,
       closure raise myName assertArgs let fn* if and or fn- macroexpand eval
       apply contextGet inspect!
 
-      ⚑:raise 🏴:raise 🏷:let &&:and ||:or 💬:inspect!
+      💥:raise 🏷:let &&:and ||:or 💬:inspect!
     }
 
 [☙ Table of Contents][toc] | [🗏 Table of Contents][toc] | [Data Types ❧][next]

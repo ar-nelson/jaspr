@@ -106,6 +106,20 @@ The `comment` macro ignores its arguments and expands to `null`.
              (let ~(p.objectMake (fn- k `[~(quote k) (0 $args)]) (keys args)) ~body)])
            (~name ~args)]))
 
+### `doTimes`
+
+`(doTimes n body)` executes `body` `n` times.
+
+    macro.doTimes:
+    (fn- n body
+      `[let {.n.: ~n}
+         (if (and (integer? .n.) (>= .n. 0))
+             (loopAs next {.n.} (if .n. (do ~body (next {.n.: (dec .n.)}))))
+             (raise {
+               err: 'BadArgs, why: "not a nonnegative integer", fn: ~(myName),
+               args: ~(quote ([] n body))
+             }))])
+
 ### `unless`
 
 `(unless pred expr)` is equivalent to `(if pred null expr)`.

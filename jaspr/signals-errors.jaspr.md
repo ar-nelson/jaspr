@@ -1,4 +1,4 @@
-[☙ Pattern Matching][prev] | [🗏 Table of Contents][toc] | [Iterators and Pipelines ❧][next]
+[☙ Pattern Matching][prev] | [🗏 Table of Contents][toc] | [Streams and Pipelines ❧][next]
 :---|:---:|---:
 
 # Signals and Error Handling
@@ -33,7 +33,6 @@ The primary use of signals in Jaspr is to raise and handle _errors_. A Jaspr err
 - `BadPattern`: Cannot parse a pattern. Has `pattern` key.
 - `NotCallable`: Object is not callable. Has `callee` and `args` keys.
 - `NotJSON`: Tried to convert a magic object to JSON. Has a `value` key.
-- `ChanClosed`: Channel was closed while a `recv!` was waiting. Has a `chan` key.
 - `ParseFailed`: Failed to parse Jaspr or JSON source. Has `filename`, `line`, `column` keys.
 - `ReadFailed`: Filesystem error.
 - `WriteFailed`: Filesystem error.
@@ -75,7 +74,7 @@ If a `handler` raises a signal, that signal is handled by `catch`'s parent signa
 >     (let {ch: (chan!), _: (await (sleep 200) (send! 'outer ch))} {
 >       returned: (catch (do (await (sleep 100) (raise 'inner)) true)
 >                   x (do (send! x ch) false)),
->       raised: (recv! ch)
+>       raised: ('value (recv! ch))
 >     }) ;= {returned: true, raised: “outer”}
 
 `catch` raises a `BadArgs` error at macro expansion time if it has an even number of arguments, or a `BadPattern` error at macro expansion time if one of the `pat` patterns is not a valid pattern.
@@ -145,7 +144,7 @@ If `handler` raises a signal, that signal is handled by `catchWith`'s parent sig
 >     (let {ch: (chan!), _: (await (sleep 200) (send! 'outer ch))} {
 >       returned: (catchWith (fn- x (do (send! x ch) false))
 >                            (do (await (sleep 100) (raise 'inner)) true)),
->       raised: (recv! ch)
+>       raised: ('value (recv! ch))
 >     }) ;= {returned: true, raised: “outer”}
 
 The pattern-matching `catch` macro is better suited than `catchWith` to most use cases.
@@ -155,7 +154,7 @@ The pattern-matching `catch` macro is better suited than `catchWith` to most use
     macro.catchWith:
     (fn- handler body
       `[let {.ch.: (chan!) .last.: (getDynamic p.signalHandler) .hfn.: ~handler}
-            (choice (recv! .ch.)
+            (choice ('value (recv! .ch.))
                     (letDynamic p.signalHandler
                                 (fn- x (letDynamic p.signalHandler .last.
                                                    (send! (.hfn. x) .ch.)))
@@ -190,12 +189,12 @@ The pattern-matching `resume` macro is better suited than `resumeWith` to most u
 
     $export: {
       catch resume catchWith resumeWith
-      🚨:resume ⚐:catch 🏳:catch
+      🚨:resume 🚧:catch
     }
 
-[☙ Pattern Matching][prev] | [🗏 Table of Contents][toc] | [Iterators and Pipelines ❧][next]
+[☙ Pattern Matching][prev] | [🗏 Table of Contents][toc] | [Streams and Pipelines ❧][next]
 :---|:---:|---:
 
 [toc]: jaspr.jaspr.md
 [prev]: pattern-matching.jaspr.md
-[next]: iterators.jaspr.md
+[next]: streams.jaspr.md

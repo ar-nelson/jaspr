@@ -510,13 +510,17 @@ Returns `true` if its argument is the empty array.
 
 >     (let {c1: (chan!), c2: (chan!), c3: (chan!)}
 >       ([] (forEach (\x send! 1 x) ([] c1 c2 c3))
->           (recv! c1) (recv! c2) (recv! c3))) ;= [null, 1, 1, 1]
+>           ('value (recv! c1))
+>           ('value (recv! c2))
+>           ('value (recv! c3)))) ;= [null, 1, 1, 1]
 
 `(forEach f xs₀ xs₁ … xsₙ)` iterates over all of `xs₀`…`xsₙ` at the same time, passing `n` + 1 arguments to `f`. Iteration stops once the end of the shortest `xs` is reached.
 
 >     (let {c1: (chan!), c2: (chan!), c3: (chan!)}
->       ([] (forEach (\xy send! y x) ([] c1 c2 c3) '[a b c])
->           (recv! c1) (recv! c2) (recv! c3))) ;= [null, "a", "b", "c"]
+>       ([] (forEach send! '[a b c] ([] c1 c2 c3))
+>           ('value (recv! c1))
+>           ('value (recv! c2))
+>           ('value (recv! c3)))) ;= [null, "a", "b", "c"]
 
 `forEach` does not resolve until every call to `f` has resolved. This behavior is similar to `awaitAll`. `forEach` could be considered equivalent to `(await (apply awaitAll (map f xs₀ … xsₙ)) null)`, if it were possible to `apply` a macro.
 
@@ -525,11 +529,11 @@ Returns `true` if its argument is the empty array.
 >                  (send! 3 chan))
 >           (await (recv! chan)
 >                  (recv! chan)
->                  (recv! chan)))) ;= 3
+>                  (recv! chan)))) ;= {value: 3, done: false}
 
 `forEach` raises a `BadArgs` error if `xs` is not an array.
 
-If iteration order is significant, use `forEachSeries` instead.
+If iteration order is significant, use the stream function `forEach!` instead.
 
 ---
 
@@ -539,48 +543,6 @@ If iteration order is significant, use `forEachSeries` instead.
         (loopAs next {i: 0}
           (if (< i max) (p.then (i xs) (next {i: (inc i)}))
                         null))))
-
-### `forEachSeries`
-
-`(forEachSeries f xs)` calls `f` with each element in `xs`, then returns `null`. `f` is called only for its side effects. The elements of `xs` are iterated over in order, and `forEachSeries` waits for each call to `f` to resolve before starting the next one.
-
->     (let {c: (chan!)}
->       (do (forEach (\x send! x c) '[1 2 3])
->           (await (recv! c) (recv! c) (recv! c)))) ;= 3
-
-`(forEachSeries f xs₀ xs₁ … xsₙ)` iterates over all of `xs₀`…`xsₙ` at the same time, passing `n` + 1 arguments to `f`. Iteration stops once the end of the shortest `xs` is reached.
-
->     (let {c1: (chan!), c2: (chan!), c3: (chan!)}
->       ([] (forEachSeries (\xy send! y x) ([] c1 c2 c3) '[a b c])
->           (recv! c1) (recv! c2) (recv! c3))) ;= [null, "a", "b", "c"]
-
-`forEachSeries` does not resolve until every call to `f` has resolved. This behavior is similar to `await`.
-
->     (let {chan: (chan!)}
->       (do (await (forEachSeries (\ await (sleep 100) (send! _ chan)) '[1 2])
->                  (send! 3 chan))
->           (await (recv! chan)
->                  (recv! chan)
->                  (recv! chan)))) ;= 3
-
-`forEachSeries` raises a `BadArgs` error if `xs` is not an array.
-
-If iteration order is not significant, `forEach` has better performance than `forEachSeries`.
-
----
-
-    forEachSeries:
-    (fn* args
-      (assertArgs args "expected at least 1 argument"
-        (if (= 2 (len args))
-            (let {f: (0 args) xs: (1 args) max: (len xs)}
-              (loopAs next {i: 0}
-                (if (< i max) (await (f (i xs)) (next {i: (inc i)}))
-                              null)))
-            (let {f: (hd args) arrs: (tl args) max: (apply min (map len arrs))}
-              (loopAs next {i: 0}
-                (if (< i max) (await (apply f (map i arrs)) (next {i: (inc i)}))
-                              null))))))
 
 ### `map`
 
@@ -603,47 +565,11 @@ If iteration order is not significant, `forEach` has better performance than `fo
               (p.arrayMake (\ apply f (map _ arrs))
                            (apply min (map len arrs)))))))
 
-### `mapSeries`
-
->     (mapSeries inc '[1 2 3]) ;= [2, 3, 4]
->     (mapSeries inc '[]) ;= []
-
->     (mapSeries sub '[4 6 2] '[1 2 3]) ;= [3, 4, -1]
->     (mapSeries sub '[4 6 2] '[1 2]) ;= [3, 4]
->     (mapSeries sub '[4 6] '[1 2 3]) ;= [3, 4]
-
----
-
-    mapSeries:
-    (fn* args
-      (assertArgs args "expected at least 1 argument"
-        (if (= 2 (len args))
-            (let {
-              f: (0 args),
-              xs: (1 args),
-              out: (p.arrayMake (\ if _ (await ((dec _) out) (f (_ xs)))
-                                        (f (_ xs))) (len xs))
-            } out)
-            (let {
-              f: (hd args),
-              arrs: (tl args),
-              out: (p.arrayMake (\ if _ (await ((dec _) out)
-                                               (apply f (map _ arrs)))
-                                        (apply f (map _ arrs)))
-                                (apply min (map len arrs)))
-            } out))))
-
 ### `mapcat`
 
 >     (mapcat (\ [] _ (inc _)) '[10 20 30]) ;= [10, 11, 20, 21, 30, 31]
 
     mapcat: (comp flat map)
-
-### `mapcatSeries`
-
->     (mapcatSeries (\ [] _ (inc _)) '[10 20 30]) ;= [10, 11, 20, 21, 30, 31]
-
-    mapcatSeries: (comp flat mapSeries)
 
 ### `filter`
 
@@ -876,15 +802,15 @@ If iteration order is not significant, `forEach` has better performance than `fo
       uniq uniq? union intersection difference in? allIn? remove
       subarray? superarray?
       intersect:intersection subset?:allIn? superset?:containsAll?
-      ∪:union ∩:intersection ∈:in? ∋:contains? ⊆:allIn? ⊇:containsAll?
-      ⊑:subarray? ⊒:superarray?
+      ∪:union ∩:intersection ∈:in? ∋:contains?
+      ⊂:allIn? ⊃:containsAll? ⊆:allIn? ⊇:containsAll?
+      ⊏:subarray? ⊐:superarray? ⊑:subarray? ⊒:superarray?
 
-      all? any? none? makeArray forEach forEachSeries map mapSeries mapcat
-      mapcatSeries filter reject fold reduce reduceRight takeWhile dropWhile
-      takeRightWhile dropRightWhile find findLast indexOf lastIndexOf indexesOf
-      indexWhere lastIndexWhere indexesWhere unfold count countBy groupBy split
-      intercalate
-      every?:all? some?:any? flatMap mapcat flatMapSeries:mapcatSeries
+      all? any? none? makeArray forEach map mapcat filter reject fold reduce
+      reduceRight takeWhile dropWhile takeRightWhile dropRightWhile find
+      findLast indexOf lastIndexOf indexesOf indexWhere lastIndexWhere
+      indexesWhere unfold count countBy groupBy split intercalate
+      every?:all? some?:any? flatMap mapcat
       reduceLeft:reduce foldLeft:reduce foldRight:reduceRight
       indicesOf:indexesOf indicesWhere:indexesWhere
       ∀:all? ∃:any? ∄:none? 🔎:find 🔍:findLast

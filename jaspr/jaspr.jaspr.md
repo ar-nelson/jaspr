@@ -9,7 +9,7 @@ This document is both the documentation for the Jaspr programming language and a
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
     $module: jaspr
-    $version: 0.1.171210
+    $version: 0.1.171218
     $author: “Adam R. Nelson <adam@nels.onl>”
 
 ## Literate Code Blocks
@@ -36,7 +36,7 @@ Code blocks inside of blockquotes are unit tests. If the code contains a `;=` co
 8. [String Operations](strings.jaspr.md)
 9. [Pattern Matching](pattern-matching.jaspr.md)
 10. [Signals and Error Handling](signals-errors.jaspr.md)
-11. [Iterators and Pipelines](iterators.jaspr.md)
+11. [Streams and Pipelines](streams.jaspr.md)
 12. [Comparisons and Sorting](sorting.jaspr.md)
 13. [Basic I/O](io.jaspr.md)
 14. [Modules](modules.jaspr.md)
@@ -54,7 +54,7 @@ This index file does not contain any Jaspr code; the standard library is defined
       strings.jaspr.md,
       pattern-matching.jaspr.md,
       signals-errors.jaspr.md,
-      //iterators.jaspr.md,
+      streams.jaspr.md,
       //sorting.jaspr.md,
       //io.jaspr.md,
       //modules.jaspr.md

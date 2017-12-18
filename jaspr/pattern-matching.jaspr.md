@@ -9,7 +9,7 @@ The `case`, `fn`, and `let*` macros interpret certain forms as patterns, and mat
 
 `null`, boolean, and number patterns match values equal to themselves, and do not bind any names.
 
-String patterns that are valid names (not containing `.` or any reserved character, and not starting with `$`) match anything, and bind the matched value to the string.
+String patterns that are valid names (not containing `.` or any reserved character, and not starting with `$`) match anything, and bind the matched value to the string. The string `“_”` (underscore) does not bind any variables, and can be used to ignore parts of a pattern.
 
 Array patterns of length 2 starting with `“”` (quoted forms) match only values equal to the second element of the pattern, and do not bind any names.
 
@@ -59,7 +59,7 @@ The pattern-matching macros use two internal, unexported functions to generate p
       (let {
         recur: (\->> (map (\x makePatternBindings (x pat) ([] (quote x) val)))
                      (apply merge))
-      } (if (or (null? pat) (boolean? pat) (number? pat))
+      } (if (or (null? pat) (boolean? pat) (number? pat) (p.is? pat “_”))
               {}
             (string? pat)
               (if (or (emptyString? pat) (substring? “.” pat))
@@ -119,7 +119,7 @@ The pattern-matching macros use two internal, unexported functions to generate p
 >       {a: 1 b: 3} “no”
 >       {a: 1 b}    “yes”) ;= “yes”
 
-`case` throws an exception at macro expansion time if it has an even number of arguments or if one of `pat₀`…`patₙ` is not a legal pattern; it throws an exception at runtime if no pattern matches `x`.
+`case` raises a `BadArgs` error at macro expansion time if it has an even number of arguments, a `BadPattern` error at macro expansion time if one of `pat₀`…`patₙ` is not a legal pattern, or a `NoMatch` error at runtime if no pattern matches `x`.
 
 ---
 
@@ -144,7 +144,9 @@ The pattern-matching macros use two internal, unexported functions to generate p
 
 ## `fn`
 
-`fn` defines a function using pattern matching. A `fn` form is made up of _clauses_ separated by the string `“.”`. Each clause is zero or more argument patterns, followed by a function body. When the function defined by `fn` is called, the array of arguments is matched against the argument patterns of each clause, in order, until one matches; if no clause matches, an exception is thrown.
+`fn` defines a function using pattern matching. A `fn` form is made up of _clauses_ separated by the string `“.”`. Each clause is zero or more argument patterns, followed by a function body. When the function defined by `fn` is called, the array of arguments is matched against the argument patterns of each clause, in order, until one matches; if no clause matches, a `BadArgs` error is raised.
+
+>     ((fn 42)) ;= 42
 
 >     ((fn x (add 1 x)) 2) ;= 3
 
@@ -191,17 +193,61 @@ The pattern-matching macros use two internal, unexported functions to generate p
 
 Unlike `let`, `let*` does not allow recursive definitions.
 
-`let*` throws an exception at macro expansion time if it has an even number of arguments or if one of `pat₀`…`patₙ` is not a legal pattern; it throws an exception at runtime if any `val` does not match its corresponding pattern.
+`let*` raises a `BadArgs` error at macro expansion time if it has an even number of arguments, a `BadPattern` error at macro expansion time if one of `pat₀`…`patₙ` is not a legal pattern, or a `NoMatch` error at runtime if any `val` does not match its corresponding pattern.
 
 ---
 
     macro.let*:
     (fn body body
       . pat val … rest
-          `[case ~val
-             ~pat (let* ~@rest)
-             _ (raise { err: “NoMatch”, fn: ~(myName),
-                        pattern: ~(quote pat), value: ~(quote val) })])
+        `[case ~val
+           ~pat (let* ~@rest)
+           .value. (raise { err: “NoMatch”, fn: ~(myName),
+                            pattern: ~(quote pat), value: .value. })])
+
+## `awaitLet`
+
+`awaitLet` is a combination of `let*` and `await`.
+
+`(awaitLet pat₀ val₀ pat₁ val₁ … patₙ valₙ body)` evaluates `val₀`…`valₙ` in order, matching each pattern `pat` to the corresponding `val`, with the resulting bindings available when evaluating subsequent `val`s.
+
+>     (awaitLet 42) ;= 42
+
+>     (awaitLet x 91
+>               x) ;= 91
+
+>     (awaitLet [x y z] '[1 2 3]
+>               y) ;= 2
+
+>     (awaitLet x 1
+>               y 2
+>               {x y}) ;= {x: 1, y: 2}
+
+>     (awaitLet [x … xs] '[1 2 3]
+>               {x xs}) ;= {x: 1, xs: [2 3]}
+
+Each `val` is only evaluated after the previous `val` has resolved, as in `await`. Once all `val`s have resolved, `awaitLet` returns the result of evaluating `body` with all bindings from all patterns in scope.
+
+>     (let {c: (chan!)}
+>       (do (await (send! 10 c) (send! 20 c) (send! 30 c))
+>           (awaitLet {value: x} (recv! c)
+>                     {value: y} (recv! c)
+>                     {value: z} (recv! c)
+>                     ([] x y z)))) ;= [10, 20, 30]
+
+`awaitLet` raises a `BadArgs` error at macro expansion time if it has an even number of arguments, a `BadPattern` error at macro expansion time if one of `pat₀`…`patₙ` is not a legal pattern, or a `NoMatch` error at runtime if any `val` does not match its corresponding pattern.
+
+---
+
+    macro.awaitLet:
+    (fn body body
+      . pat val … rest
+        `[let {.awaitLet.: ~val}
+           (await .awaitLet.
+                  (case .awaitLet.
+                     ~pat (awaitLet ~@rest)
+                     _ (raise { err: “NoMatch”, fn: ~(myName),
+                                pattern: ~(quote pat), value: .awaitLet. })))])
 
 ## Exports
 

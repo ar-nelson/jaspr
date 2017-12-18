@@ -30,8 +30,8 @@ export const magicSymbol = Symbol("magic")
 
 export type Err =
   'NoBinding' | 'NoKey' | 'NoMatch' | 'BadName' | 'BadArgs' | 'BadModule' |
-  'BadPattern' | 'NotCallable' | 'NoPrimitive' | 'NotJSON' | 'ChanClosed' |
-  'ParseFailed' | 'EvalFailed' | 'ReadFailed' | 'WriteFailed' | 'NativeError' |
+  'BadPattern' | 'NotCallable' | 'NoPrimitive' | 'NotJSON' | 'ParseFailed' |
+  'EvalFailed' | 'ReadFailed' | 'WriteFailed' | 'NativeError' |
   'NotImplemented' | 'AssertFailed'
 
 export interface JasprError extends JasprObject {

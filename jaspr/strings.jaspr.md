@@ -171,8 +171,6 @@ This is not necessarily a JSON representation of `x`; strings will be unquoted w
 
 #### `fromChars`
 
-#### `iterChars!`
-
 #### `sliceChars`
 
 #### `charIndexOf`
@@ -212,8 +210,6 @@ This is not necessarily a JSON representation of `x`; strings will be unquoted w
 
 #### `fromBytes`
 
-#### `iterBytes!`
-
 #### `sliceBytes`
 
 #### `byteIndexOf`
@@ -243,8 +239,6 @@ This is not necessarily a JSON representation of `x`; strings will be unquoted w
 
     fromUnits: (fn- xs (assertArgs (array? xs) "not an array"
                                    (p.stringFromNativeChars xs)))
-
-#### `iterUnits!`
 
 #### `sliceUnits`
 

@@ -14,8 +14,8 @@ let stdlib: Promise<Module> | null = null
 let root: Root | null
 
 describe('the standard library', () => {
-  it('loads', function() {
-    this.timeout(10000)
+  it('loads (takes ~10 seconds due to resolveFully)', function() {
+    this.timeout(15000)
     return stdlib || Promise.reject('stdlib is null')
   })
   
@@ -52,7 +52,7 @@ describe('the standard library', () => {
     })
 
     stdlib.then(mod => describe('standard library test', () => {
-      for (let test in mod.test) {
+      for (let test of Object.keys(mod.test).sort()) {
         it(test, () => new Promise<Jaspr>((resolve, reject) => {
           const env = root
           if (!env) return reject('env is null')

@@ -101,7 +101,7 @@ const functions: {[name: string]: NativeFn} = {
     })
   }),
   'chanRecv!': new NativeAsyncFn(function([chan], cb) {
-    const cancel = (<Chan>(<any>chan)[magicSymbol]).recv(cb)
+    const cancel = (<Chan>(<any>chan)[magicSymbol]).recv(x => cb(undefined, x))
     if (cancel) this.onCancel(cancel)
   }),
   'chanClose!': new NativeSyncFn(function(chan) {
