@@ -901,8 +901,6 @@ export function evalDefs(
   const byContext: {[ctx: string]: JasprObject} = {}
   const names: [string, string, string[]][] = []
   for (let name in defs) {
-    
-        
     const lastDot = name.lastIndexOf('.')
     const ctx = lastDot > -1 ? name.slice(0, lastDot) : 'value'
     const ident = lastDot > -1 ? name.slice(lastDot + 1) : name
@@ -923,6 +921,15 @@ export function evalDefs(
   const scope = _.create(evalScope, _.mapValues(byContext,
     (obj, ctx) => Object.assign(
       Object.create(<JasprObject>evalScope[ctx] || null), obj)))
+  if (namespace) {
+    scope.qualified = _.create(scope.qualified,
+      _(defs).keys().filter(k => !/^test[.][^.]+$/.test(k)).flatMap(name => {
+        const lastDot = name.lastIndexOf('.')
+        const ident = lastDot > -1 ? name.slice(lastDot + 1) : name
+        const qualified = qualify(namespace, ident)
+        return [[ident, qualified], [`${namespace.$module}.${ident}`, qualified]]
+      }).fromPairs().value())
+  }
   for (let [name, ctx, idents] of names) {
     const value = defs[name]
     const deferred = byContext[ctx][idents[0]]
@@ -936,15 +943,6 @@ export function evalDefs(
       }),
       env, () => ({action: 'eval', code: value}),
       scope[ctx], ...idents)
-  }
-  if (namespace) {
-    scope.qualified = _.create(scope.qualified,
-      _(defs).keys().filter(k => !/^test[.][^.]+$/.test(k)).flatMap(name => {
-        const lastDot = name.lastIndexOf('.')
-        const ident = lastDot > -1 ? name.slice(lastDot + 1) : name
-        const qualified = qualify(namespace, ident)
-        return [[ident, qualified], [`${namespace.$module}.${ident}`, qualified]]
-      }).fromPairs().value())
   }
   return scope
 }

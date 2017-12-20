@@ -318,7 +318,7 @@ function loadImport(
     err: 'BadModule', why: 'cannot import script module', module: alias,
     help: 'A module without a $module key is a script module, and cannot be imported.'
   }
-  return importModule(imported, alias, names === true ? undefined : names || {})
+  return importModule(imported, alias, names === true ? undefined : (names || {}))
 }
 
 export function evalModule(
@@ -419,7 +419,7 @@ export function importModule(
   out.test = Object.create(null)
   out.qualified = Object.create(null)
   _.toPairs(names).concat(<any>(
-    alias ? _.keys(module.$export).map(k => [`${alias}.${k}`, k]).concat() : [])
+    alias ? _.keys(module.$export).map(k => [`${alias}.${k}`, k]) : [])
   ).forEach(([as, imported]) =>
     out.qualified[as] = qualify(module, imported))
   return out
