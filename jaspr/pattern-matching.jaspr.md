@@ -27,8 +27,10 @@ All other values are not legal patterns; using an illegal pattern in a pattern-m
 
 The pattern-matching macros use two internal, unexported functions to generate pattern-matching code: `makePatternTest` and `makePatternBindings`.
 
+`(makePatternTest pat val fn?)` generates the predicate that tests whether the result of evaluating `val` matches the pattern `pat`. The flag `fn?` is `true` when `makePatternTest` is called from `fn`; if it is true, `makePatternTest` omits the `array?` test for array patterns, because a function's arguments are always an array.
+
     makePatternTest:
-    (fn- pat val
+    (fn- pat val fn?
       (if (or (null? pat) (boolean? pat) (number? pat))
             `[p.is? ~val ~pat]
           (string? pat)
@@ -36,21 +38,21 @@ The pattern-matching macros use two internal, unexported functions to generate p
           (object? pat)
             `[and (object? ~val)
                   (hasKeys? ~@(map quote (keys pat)) ~val)
-                  ~@(map (\x makePatternTest (x pat) ([] (quote x) val))
+                  ~@(map (\x makePatternTest (x pat) ([] (quote x) val) false)
                          (keys pat))]
           (and (= (len pat) 2) (emptyString? (0 pat)))
             `[= ~val ~pat]
           (and (>= (len pat) 2) (= “...” (-2 pat)) (string? (-1 pat)))
-            `[and (array? ~val)
+            `[and ~(if fn? true `(array? ~val))
                   (>= (len ~val) ~(sub (len pat) 2))
                   ~@(makeArray
-                      (\x makePatternTest (x pat) ([] (quote x) val))
+                      (\x makePatternTest (x pat) ([] (quote x) val) false)
                       (sub (len pat) 2))]
           (none? (\ or (= “...” _) (emptyString? _)) pat)
-            `[and (array? ~val)
+            `[and ~(if fn? true `(array? ~val))
                   (= (len ~val) ~(len pat))
                   ~@(makeArray
-                      (\x makePatternTest (x pat) ([] (quote x) val))
+                      (\x makePatternTest (x pat) ([] (quote x) val) false)
                       (len pat))]
           (raise {err: “BadPattern”, pattern: pat})))
 
@@ -133,7 +135,7 @@ The pattern-matching macros use two internal, unexported functions to generate p
                       (chunk 2)
                       (mapcat (fn- pair
                         (define {pat: (0 pair), expr: (1 pair)}
-                          `[~(makePatternTest pat val)
+                          `[~(makePatternTest pat val false)
                             (define ~(makePatternBindings pat val) ~expr)])))),
         ifExpr: `[if ~@clauses (raise {
                     err: “NoMatch”,
@@ -163,12 +165,20 @@ The pattern-matching macros use two internal, unexported functions to generate p
 
     macro.fn:
     (fn* args
-      `[fn* .args.
-         (case .args.
-           ~@(mapcat (fn- pat `[~(init pat) ~(last pat)])
-                       (split “.” args))
-           args (raise { err: “BadArgs”, why: “no pattern match for arguments”,
-                         fn: (myName), args }))])
+      (define {
+        clauses: (mapcat (fn- clause
+                           (define {pat: (init clause), body: (last clause)}
+                             `[~(makePatternTest pat argsName true)
+                               (define ~(makePatternBindings pat argsName)
+                                       ~body)]))
+                         (split “.” args)),
+        ifExpr: `[if ~@clauses (raise {
+                   err: “BadArgs”,
+                   why: “no pattern match for arguments”,
+                   fn: (myName),
+                   args: ~argsName
+                })]
+      } `[closure {} (define ~({} argsName '$args) ~ifExpr)]))
 
 ## `let`
 
