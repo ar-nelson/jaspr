@@ -10,7 +10,6 @@ import {NativeAsyncFn} from './NativeFn'
 import Chan from './Chan'
 import chalk from 'chalk'
 import {randomBytes} from 'crypto'
-const base65536 = require('base65536')
 
 export class Branch implements Env {
   readonly root: Root
@@ -92,8 +91,8 @@ export class Branch implements Env {
   }
   
   gensym(name?: string) {
-    const id = base65536.encode(randomBytes(16))
-    return name ? name + '|' + id : id
+    const id = randomBytes(15).toString('base64')
+    return name ? name + '_' + id : id
   }
 
   get closureName(): string { return this.root.closureName }
