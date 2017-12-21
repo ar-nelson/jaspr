@@ -1,5 +1,5 @@
 import {
-  Jaspr, JasprArray, JasprObject, JasprError, Callback, Deferred, resolveArray, magicSymbol
+  Jaspr, JasprArray, JasprObject, JasprError, Callback, Deferred, magicSymbol
 } from './Jaspr'
 import {Env} from './Interpreter'
 import * as Names from './ReservedNames'
@@ -29,17 +29,15 @@ export class NativeSyncFn extends NativeFn {
     }
   }
 
-  call(env: Env, args: JasprArray, cb: AsyncResultCallback<Jaspr, JasprError>) {
-    resolveArray(args, args => {
-      let result: Jaspr
-      try {result = this.fn.apply(env, args)}
-      catch (err) {
-        if (err instanceof Error) {
-          return cb({err: 'NativeError', why: err.toString()})
-        } else return cb(err)
-      }
-      cb(undefined, result)
-    })
+  call(env: Env, args: Jaspr[], cb: AsyncResultCallback<Jaspr, JasprError>) {
+    let result: Jaspr
+    try {result = this.fn.apply(env, args)}
+    catch (err) {
+      if (err instanceof Error) {
+        return cb({err: 'NativeError', why: err.toString()})
+      } else return cb(err)
+    }
+    cb(undefined, result)
   }
 
   toClosure(env: Env): JasprObject {
@@ -65,8 +63,8 @@ export class NativeAsyncFn extends NativeFn {
     }
   }
   
-  call(env: Env, args: JasprArray, cb: AsyncResultCallback<Jaspr, JasprError>) {
-    resolveArray(args, args => this.fn.call(env, args, cb))
+  call(env: Env, args: Jaspr[], cb: AsyncResultCallback<Jaspr, JasprError>) {
+    this.fn.call(env, args, cb)
   }
 
   toClosure(env: Env): JasprObject {

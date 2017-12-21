@@ -3,7 +3,7 @@ import * as readline from 'readline'
 import {waterfall} from 'async'
 
 import {Jaspr, JasprError, Json, Callback, resolveFully} from './Jaspr'
-import {Scope, emptyScope, mergeScopes, Env, expandAndEval} from './Interpreter'
+import {Scope, emptyScope, mergeScopes, Env, expandAndEval, waitFor} from './Interpreter'
 import {readModuleFile, evalModule, importModule, ModuleSource, Module} from './Module'
 import {Root, Branch} from './Fiber'
 import Parser from './Parser'
@@ -128,7 +128,7 @@ rl.on('line', line => {
         startTimer()
         const number = counter
         scopePromise.then(scope =>
-          expandAndEval(root, scope, code, result =>
+          waitFor(expandAndEval(root, scope, [], undefined, code), result =>
             resolveFully(result, (err, result) => {
               if (timeout != null) clearTimeout(timeout)
               console.log(chalk.green(`№${number} ⇒`) + ' ' + prettyPrint(result))
@@ -182,7 +182,7 @@ rl.on('line', line => {
           setState(State.Waiting)
           startTimer()
           scopePromise.then(scope =>
-            expandAndEval(root, scope, code, result => {
+            waitFor(expandAndEval(root, scope, [], undefined, code), result => {
               if (errorCallback != null) errorCallback(result)
             }))
         } else {

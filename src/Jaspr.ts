@@ -1,5 +1,4 @@
 import * as _ from 'lodash'
-import * as async from 'async'
 import * as Names from './ReservedNames'
 import {reservedChar} from './Parser'
 
@@ -120,20 +119,6 @@ export function getKey(key: string, object: JasprObject, cb: ErrCallback): void 
   } else if (it instanceof Deferred) {
     it.await(v => {object[key] = v; cb(null, v)})
   } else cb(null, it)
-}
-
-export function resolveArray(array: JasprArray, cb: (x: Jaspr[]) => void): void {
-  async.eachOf(array, (x: Jaspr | Deferred, i: number, cb: ErrorCallback<null>) => {
-    if (x instanceof Deferred) x.await(v => {array[i] = v; cb(null)})
-    else cb(null)
-  }, () => cb(<Jaspr[]>array))
-}
-
-export function resolveObject(object: JasprObject, cb: (x: {[k: string]: Jaspr}) => void): void {
-  async.eachOf(object, (x: Jaspr | Deferred, k: string, cb: ErrorCallback<null>) => {
-    if (x instanceof Deferred) x.await(v => {object[k] = v; cb(null)})
-    else cb(null)
-  }, () => cb(<{[k: string]: Jaspr}>object))
 }
 
 export function resolveFully(root: Jaspr, cb: ErrCallback, jsonOnly = false): void {

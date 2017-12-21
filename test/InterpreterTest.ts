@@ -1,11 +1,11 @@
 import {withEnv} from './Helpers'
 import {
-  Jaspr, JasprObject,  JsonObject, resolveFully, Deferred
+  Jaspr, JasprObject, JsonObject, resolveFully, Deferred, Callback
 } from '../src/Jaspr'
 import {
-  Env, Scope, emptyScope, makeDynamic, isClosure, evalExpr, macroExpand,
-  evalDefs, expandAndEval
+  Env, Scope, emptyScope, makeDynamic, isClosure, evalDefs, DynamicMap
 } from '../src/Interpreter'
+import * as I from '../src/Interpreter'
 import * as Names from '../src/ReservedNames'
 import {NativeSyncFn, NativeAsyncFn} from '../src/NativeFn'
 import * as _ from 'lodash'
@@ -36,6 +36,18 @@ const macroArrayAdd1 = (env: Env) => ({
 })
 const dyn = makeDynamic(false)
 
+function evalExpr(env: Env, scope: Scope, code: Jaspr, cb: Callback, dyn?: DynamicMap): void {
+  I.waitFor(I.evalExpr(env, scope, [], dyn, code), cb)
+}
+
+function macroExpand(env: Env, scope: Scope, code: Jaspr, cb: Callback, dyn?: DynamicMap): void {
+  I.waitFor(I.macroExpand(env, scope, dyn, code), cb)
+}
+
+function expandAndEval(env: Env, scope: Scope, code: Jaspr, cb: Callback, dyn?: DynamicMap): void {
+  I.waitFor(I.expandAndEval(env, scope, [], dyn, code), cb)
+}
+
 describe('eval', () => {
   it('evaluates null, booleans, numbers, and empty structures as themselves',
     withEnv((env, should) => {
@@ -58,7 +70,7 @@ describe('eval', () => {
   }))
   it('raises NoBinding when variable cannot be resolved', withEnv((env, should) =>
     should.raise('NoBinding', (dyn, cb) =>
-      evalExpr(env, emptyScope, [], dyn, 'foo', cb))))
+      evalExpr(env, emptyScope, 'foo', cb, dyn))))
   it('does not evaluate quoted code', withEnv((env, should) => {
     evalExpr(env, emptyScope, ['', 1], should.equal(1))
     evalExpr(env, emptyScope, ['', 'foo'], should.equal('foo'))
@@ -74,7 +86,7 @@ describe('eval', () => {
     evalExpr(env, emptyScope, [0, ['', ['foo', 'bar']]], should.equal('foo'))
     evalExpr(env, emptyScope, [1, ['', ['foo', 'bar']]], should.equal('bar'))
     should.raise('NoKey', (dyn, cb) =>
-      evalExpr(env, emptyScope, [], dyn, [2, ['', ['foo', 'bar']]], cb))
+      evalExpr(env, emptyScope, [2, ['', ['foo', 'bar']]], cb, dyn))
   }))
   it('supports negative array indices', withEnv((env, should) => {
     evalExpr(env, emptyScope, [-1, ['', ['foo', 'bar']]], should.equal('bar'))
@@ -84,15 +96,15 @@ describe('eval', () => {
     evalExpr(env, emptyScope, [['', 'a'], {a: 1, b: 2}], should.equal(1))
     evalExpr(env, emptyScope, [['', 'b'], {a: 1, b: 2}], should.equal(2))
     should.raise('NoKey', (dyn, cb) =>
-      evalExpr(env, emptyScope, [], dyn, [['', 'c'], {a: 1, b: 2}], cb))
+      evalExpr(env, emptyScope, [['', 'c'], {a: 1, b: 2}], cb, dyn))
   }))
   it('does not leak JavaScript properties via object indexing', withEnv((env, should) => {
     should.raise('BadArgs', (dyn, cb) =>
-      evalExpr(env, emptyScope, [], dyn, [['', 'length'], ['', 'foo']], cb))
+      evalExpr(env, emptyScope, [['', 'length'], ['', 'foo']], cb, dyn))
     should.raise('BadArgs', (dyn, cb) =>
-      evalExpr(env, emptyScope, [], dyn, [['', 'length'], ['', [1, 2]]], cb))
+      evalExpr(env, emptyScope, [['', 'length'], ['', [1, 2]]], cb, dyn))
     should.raise('NoKey', (dyn, cb) =>
-      evalExpr(env, emptyScope, [], dyn, [['', 'hasOwnProperty'], {a: 1, b: 2}], cb))
+      evalExpr(env, emptyScope, [['', 'hasOwnProperty'], {a: 1, b: 2}], cb, dyn))
   }))
   describe('closure', () => {
     it('can be called inline', withEnv((env, should) =>
@@ -105,7 +117,7 @@ describe('eval', () => {
         should.equal(2))))
     it('cannot access the callsite scope', withEnv((env, should) =>
       should.raise('NoBinding', (dyn, cb) =>
-        evalExpr(env, values({foo: 1}), [], dyn, [['', closure(env, 'foo')]], cb))))
+        evalExpr(env, values({foo: 1}), [['', closure(env, 'foo')]], cb, dyn))))
     it('stores arguments array in $args', withEnv((env, should) =>
       evalExpr(env, emptyScope, [['', closure(env, [1, '$args'])],
                                  ['', 'foo'],

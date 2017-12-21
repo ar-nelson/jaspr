@@ -2,7 +2,7 @@ import {
   Jaspr, JasprError, resolveFully, toString, toBool, isObject, magicSymbol
 } from '../src/Jaspr'
 import {Root, Branch} from '../src/Fiber'
-import {expandAndEval} from '../src/Interpreter'
+import {expandAndEval, waitFor} from '../src/Interpreter'
 import {readModuleFile, evalModule, ModuleSource, Module} from '../src/Module'
 import newPrimitiveModule from '../src/JasprPrimitive'
 import prettyPrint from '../src/PrettyPrint'
@@ -57,7 +57,7 @@ describe('the standard library', () => {
           const env = root
           if (!env) return reject('env is null')
           const {fiber, cancel} = env.deferCancelable(
-            (env, cb) => expandAndEval(env, mod, [], {
+            (env, cb) => waitFor(expandAndEval(env, mod, [], {
                 key: env.signalHandlerVar,
                 value: new NativeSyncFn(function errorHandler(err) {
                   if (isObject(err) && err[magicSymbol] instanceof Error) {
@@ -66,7 +66,7 @@ describe('the standard library', () => {
                   cancel()
                   return null
                 }).toClosure(env)
-              }, mod.test[test], cb))
+              }, mod.test[test]), cb))
           fiber.await(v => {
             try { expect(toBool(v)).to.be.true }
             catch (ex) { return reject(ex) }
