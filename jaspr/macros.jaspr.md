@@ -128,7 +128,29 @@ The `comment` macro ignores its arguments and expands to `null`.
 >     (unless false 42) ;= 42
 >     (unless true 42) ;= null
 
+---
+
      macro.unless: (fn- pred expr `[if ~pred null ~expr])
+
+### `any=?`
+
+`(any=? x y0 y1 ... yn)` is equivalent to `(or (= x y0) (= x y1) ... (= x yn))` (although it does not evaluate `x` more than once).
+
+>     (any=? 20 0 10 20 30) ;= true
+>     (any=? 30 0 10 20 30) ;= true
+>     (any=? 40 0 10 20 30) ;= false
+
+---
+
+    macro.any=?:
+    (fn* args
+      (assertArgs args "expected at least one argument"
+        (define {x: (gensym!)}
+          `[define ~({} x (hd args))
+             ~(loopAs next {ys: (tl args)}
+                (if (= 1 (len ys))
+                    `[= ~x ~(hd ys)]
+                    `[or (= ~x ~(hd ys)) ~(next {ys: (tl ys)})]))])))
 
 ### `case=`
 

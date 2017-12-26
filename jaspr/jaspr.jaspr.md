@@ -9,7 +9,7 @@ This document is both the documentation for the Jaspr programming language and a
 
     $schema: “http://adam.nels.onl/schema/jaspr/module”
     $module: jaspr
-    $version: 0.1.171221
+    $version: 0.1.171226
     $author: “Adam R. Nelson <adam@nels.onl>”
 
 ## Literate Code Blocks

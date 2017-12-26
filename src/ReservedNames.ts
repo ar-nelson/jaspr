@@ -2,7 +2,7 @@
 export const prefix = '$'
 
 export const primitiveModule = 'jaspr.primitive'
-export const version = '0.1.171221'
+export const version = '0.1.171226'
 
 export const closure = prefix + 'closure'
 export const code = prefix + 'code'
@@ -30,7 +30,7 @@ export const jsAsync = prefix + 'jsAsync'
 
 /** Named here because it's the one built-in function (not special form) that
  *  is called directly by Jaspr's macroexpand/eval process: `$syntaxQuote`
- *  can expand to `$arrayConcat` when `$unquoteSplicing` is used. */
+ *  can expand to `arrayConcat` when `$unquoteSplicing` is used. */
 export const arrayConcat = 'arrayConcat'
 export const assertEquals = 'assertEquals'
 

@@ -332,10 +332,7 @@ If either `start` or `end` is negative, they behave the same as a negative index
                         (integer? end) "end is not an integer"
                         (array? xs) "not an array"
                         (p.arraySlice start end xs)))
-        (raise {
-          err: 'BadArgs why: "expected 2 or 3 arguments"
-          fn: (myName) args
-        })))
+        (assertArgs false "expected 2 or 3 arguments")))
 
 ### `chunk`
 

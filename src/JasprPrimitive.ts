@@ -176,10 +176,6 @@ const functions: {[name: string]: NativeFn} = {
     else return 0
   }),
   stringConcat: new NativeSyncFn(function(a, b) { return '' + a + b }),
-  stringReplace: new NativeSyncFn(function(orig, repl, str) {
-    return String.prototype.replace.call(
-      ''+(<any>str), ''+(<any>orig), ''+(<any>repl))
-  }),
   stringNativeIndexOf: new NativeSyncFn(function(needle, haystack, start) {
     return String.prototype.indexOf.call(
       ''+(<any>haystack), ''+(<any>needle), (<any>start)|0)
@@ -196,11 +192,14 @@ const functions: {[name: string]: NativeFn} = {
   }),
   stringUnicodeSlice: new NativeSyncFn(function(start, end, str) { 
     let out = '', index = 0
-    const st = (<any>start)|0, ed = (<any>end)|0
+    let st = (<any>start)|0, ed = (<any>end)|0
+    if (st < 0) st += unicodeLength(str)
+    if (ed < 0) ed += unicodeLength(str)
+    if (st < 0) st = 0
     for (let c of ''+(<any>str)) {
       if (index >= ed) break
       else if (index >= st) out += c
-      else index++
+      index++
     }
     return out
   }),
@@ -210,11 +209,15 @@ const functions: {[name: string]: NativeFn} = {
   }),
   stringUnicodeCharAt: new NativeSyncFn(function(index, str) {
     let i = (<any>index)|0
+    if (i < 0) i += unicodeLength(str)
+    if (i < 0) return ''
     for (let c of ''+(<any>str)) if (i-- <= 0) return c
     return ''
   }),
   stringUnicodeCodePointAt: new NativeSyncFn(function(index, str) {
     let i = (<any>index)|0
+    if (i < 0) i += unicodeLength(str)
+    if (i < 0) return null
     for (let c of ''+(<any>str)) {
       if (i-- <= 0) return <number>c.codePointAt(0)
     }
