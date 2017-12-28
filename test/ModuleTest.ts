@@ -1,5 +1,4 @@
 import {AssertionError} from 'assert'
-import {waterfall} from 'async'
 import {expect} from 'chai'
 import {Jaspr, JasprError, resolveFully, toString, magicSymbol} from '../src/Jaspr'
 import {Root, Branch} from '../src/Fiber'
@@ -23,21 +22,23 @@ function loadModule(
       }))
     }
     const env = new Root((root, err, raisedBy, cb) => {
-      fail('Error evaluating module', err, raisedBy)
+      fail('error evaluating module', err, raisedBy)
       root.cancel()
     })
-    waterfall<Module, JasprError>([
-      (cb: any) => readModuleFile(`test/modules/${filename}`, cb),
-      (mod: ModuleSource, cb: any) => evalModule(env, mod, {
-          filename, localModules: new Map([[Names.primitiveModule, prim(env)]])
-        }, cb),
-      (mod: Module, cb: any) =>
-        resolveFully(importedAs ? importModule(mod, importedAs) : mod, cb)
-    ], (err, mod) => {
-      if (err) return fail('Error loading module', <JasprError>err)
-      try { assertions(<Module>mod) }
-      catch (ex) { reject(ex); return }
-      resolve()
+    readModuleFile(`test/modules/${filename}`, (err, modsrc) => {
+      if (err) return fail('error loading module', err)
+      evalModule(env, <ModuleSource>modsrc, {
+        filename, localModules: new Map([
+          [Names.primitiveModule, Promise.resolve(prim(env))]
+        ])
+      }).then(
+        mod => resolveFully(importedAs ? importModule(mod, importedAs) : mod,
+          (err, mod) => {
+            try { assertions(<Module>mod) }
+            catch (ex) { reject(ex); return }
+            resolve()
+          }),
+        err => fail('error loading module', err))
     })
   })
 }

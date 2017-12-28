@@ -4,12 +4,14 @@ import {
 import {Root, Branch} from '../src/Fiber'
 import {expandAndEval, waitFor} from '../src/Interpreter'
 import {readModuleFile, evalModule, ModuleSource, Module} from '../src/Module'
-import newPrimitiveModule from '../src/JasprPrimitive'
+import prim from '../src/JasprPrimitive'
+import * as Names from '../src/ReservedNames'
 import prettyPrint from '../src/PrettyPrint'
 import {NativeSyncFn} from '../src/NativeFn'
 import {expect, AssertionError} from 'chai'
-import {waterfall} from 'async'
+import * as path from 'path'
 
+const filename = path.resolve(__dirname, '..', '..', 'jaspr', 'jaspr.jaspr.md')
 let stdlib: Promise<Module> | null = null
 let root: Root | null
 
@@ -37,17 +39,15 @@ describe('the standard library', () => {
           cb(null)
         })
       })
-      waterfall<Module, JasprError>([
-        (cb: any) => readModuleFile('jaspr/jaspr.jaspr.md', cb),
-        (mod: ModuleSource, cb: any) =>
-          evalModule(env, mod, {
-            filename: 'jaspr/jaspr.jaspr.md',
-            localModules: new Map([['jaspr.primitive', newPrimitiveModule(env)]])
-          }, cb),
-        resolveFully,
-      ], (err, mod) => {
-        if (err) return fail('error loading module', <JasprError>err)
-        resolve(mod)
+      readModuleFile(filename, (err, modsrc) => {
+        if (err) return fail('error loading module', err)
+        evalModule(env, <ModuleSource>modsrc, {
+          filename, localModules: new Map([
+            [Names.primitiveModule, Promise.resolve(prim(env))]
+          ])
+        }).then(
+          mod => resolveFully(mod, (err, mod) => resolve(<Module>mod)),
+          err => fail('error loading module', err))
       })
     })
 

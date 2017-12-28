@@ -65,7 +65,7 @@ const functions: {[name: string]: NativeFn} = {
   'inspect!': new NativeAsyncFn(function([x], cb) {
     resolveFully(x, (err, x) => {
       console.log(prettyPrint(x))
-      cb(undefined, x)
+      cb(null, x)
     })
   }),
   sleep: new NativeAsyncFn(function([ms], cb) {
@@ -77,15 +77,15 @@ const functions: {[name: string]: NativeFn} = {
   [Names.assertEquals]: new NativeAsyncFn(function([a, b], cb) {
     resolveFully(a, (err, a) => resolveFully(b, (err, b) => {
       try {
-        if (isMagic(a) || isMagic(b)) return cb(undefined, a === b)
+        if (isMagic(a) || isMagic(b)) return cb(null, a === b)
         expect(a).to.deep.equal(b)
-        cb(undefined, true)
+        cb(null, true)
       } catch (err) {
         if (err instanceof AssertionError) cb(<any>{
           err: 'AssertFailed', why: err.message,
           [magicSymbol]: err
-        })
-        else cb(err)
+        }, null)
+        else cb(err, null)
       }
     }))
   }),
@@ -96,12 +96,12 @@ const functions: {[name: string]: NativeFn} = {
   'chanSend!': new NativeAsyncFn(function([msg, chan], cb) {
     resolveFully(msg, (err, msg) => {
       const cancel =
-        (<Chan>(<any>chan)[magicSymbol]).send(msg, x => cb(undefined, x))
+        (<Chan>(<any>chan)[magicSymbol]).send(msg, x => cb(null, x))
       if (cancel) this.onCancel(cancel)
     })
   }),
   'chanRecv!': new NativeAsyncFn(function([chan], cb) {
-    const cancel = (<Chan>(<any>chan)[magicSymbol]).recv(x => cb(undefined, x))
+    const cancel = (<Chan>(<any>chan)[magicSymbol]).recv(x => cb(null, x))
     if (cancel) this.onCancel(cancel)
   }),
   'chanClose!': new NativeSyncFn(function(chan) {
@@ -160,12 +160,12 @@ const functions: {[name: string]: NativeFn} = {
 
   // string
   toString: new NativeAsyncFn(function([it], cb) {
-    resolveFully(<any>it, (err, it) => cb(undefined, toString(it, true)))
+    resolveFully(<any>it, (err, it) => cb(null, toString(it, true)))
   }),
   toJSON: new NativeAsyncFn(function([it], cb) {
     resolveFully(<any>it, (err, it) => {
-      if (err) cb(err)
-      else cb(undefined, JSON.stringify(it))
+      if (err) cb(err, null)
+      else cb(null, JSON.stringify(it))
     })
   }),
   fromJSON: new NativeSyncFn(function(a) { return JSON.parse(''+(<any>a)) }),

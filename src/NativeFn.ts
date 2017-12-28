@@ -1,16 +1,16 @@
 import {
-  Jaspr, JasprArray, JasprObject, JasprError, Callback, Deferred, magicSymbol
+  Jaspr, JasprArray, JasprObject, JasprError, Callback, ErrCallback, Deferred, magicSymbol
 } from './Jaspr'
 import {Env} from './Interpreter'
 import * as Names from './ReservedNames'
 
 export type SyncFn = (this: Env, ...args: Jaspr[]) => Jaspr
-export type AsyncFn = (this: Env, args: Jaspr[], cb: AsyncResultCallback<Jaspr, JasprError>) => void
+export type AsyncFn = (this: Env, args: Jaspr[], cb: ErrCallback<Jaspr>) => void
 
 export abstract class NativeFn {
   readonly source: string[]
   constructor(source: string[]) {this.source = source}
-  abstract call(env: Env, args: Jaspr[], cb: AsyncResultCallback<Jaspr, JasprError>): void
+  abstract call(env: Env, args: Jaspr[], cb: ErrCallback<Jaspr>): void
   abstract toClosure(env: Env): JasprObject
   arity() {return this.source.length - 1}
   toString() { return `Native function (${this.source})` }
@@ -29,15 +29,15 @@ export class NativeSyncFn extends NativeFn {
     }
   }
 
-  call(env: Env, args: Jaspr[], cb: AsyncResultCallback<Jaspr, JasprError>) {
+  call(env: Env, args: Jaspr[], cb: ErrCallback<Jaspr>) {
     let result: Jaspr
     try {result = this.fn.apply(env, args)}
     catch (err) {
       if (err instanceof Error) {
-        return cb({err: 'NativeError', why: err.toString()})
-      } else return cb(err)
+        return cb({err: 'NativeError', why: err.toString()}, null)
+      } else return cb(err, null)
     }
-    cb(undefined, result)
+    cb(null, result)
   }
 
   toClosure(env: Env): JasprObject {
@@ -63,7 +63,7 @@ export class NativeAsyncFn extends NativeFn {
     }
   }
   
-  call(env: Env, args: Jaspr[], cb: AsyncResultCallback<Jaspr, JasprError>) {
+  call(env: Env, args: Jaspr[], cb: ErrCallback<Jaspr>) {
     this.fn.call(env, args, cb)
   }
 

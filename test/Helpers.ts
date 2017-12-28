@@ -1,6 +1,6 @@
 import {
   Jaspr, JasprArray, JasprObject, Callback, resolveFully, toString,
-  Deferred, JsonObject, Err
+  Deferred, JsonObject, Err, ErrCallback
 } from '../src/Jaspr'
 import {
   Env, Action, Scope, emptyScope, raise, evalExpr, macroExpand, evalDefs,
@@ -92,7 +92,7 @@ export class TestCase implements Should<Callback> {
     })))
   }
 
-  get withoutError(): Should<AsyncResultCallback<Jaspr, any>> {
+  get withoutError(): Should<ErrCallback<Jaspr>> {
     const should = this
     return {
       equal(value: Jaspr) {

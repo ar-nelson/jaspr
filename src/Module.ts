@@ -1,11 +1,10 @@
 import * as _ from 'lodash'
-import {reduce as asyncReduce} from 'async'
 import * as XRegExp from 'xregexp'
 import * as fs from 'fs'
 import * as path from 'path'
 import {
-  Jaspr, JasprObject, JasprError, Json, JsonObject, Deferred, Callback, isArray,
-  isObject, has
+  Jaspr, JasprObject, JasprError, Json, JsonObject, Deferred, Callback,
+  ErrCallback, isArray, isObject, has
 } from './Jaspr'
 import {
   Scope, emptyScope, mergeScopes, Env, evalDefs, expandAndEval, isLegalName,
@@ -13,7 +12,7 @@ import {
 } from './Interpreter'
 import {prefix, primitiveModule} from './ReservedNames'
 import Parser from './Parser'
-import {parseMarkdown} from './LiterateParser'
+import {parseMarkdown, markdownExtensions} from './LiterateParser'
 
 export const currentSchema = "http://adam.nels.onl/schema/jaspr/module"
 
@@ -50,13 +49,10 @@ export interface Module extends Scope, Namespace {
   $export: { [as: string]: string }
 }
 
-export const markdownExtensions = ['.md', '.mkd', '.markdown']
-
 const githubRegex = /^https?:\/\/(www[.])?github[.]com\/[^\/]+\/[^\/]+/
 const httpRegex = /^https?:\/\/.+/
 const moduleSegment = '(\\pL|\\p{Pd}|\\p{Pc})(\\pL|\\pN|\\p{Pd}|\\p{Pc}|\\p{Sk})*'
 const moduleNameRegex = XRegExp(`^${moduleSegment}([.]${moduleSegment})*$`, 'A')
-
 
 function importSource(from: string): ImportSource {
   if (githubRegex.test(from)) return 'git'
@@ -130,13 +126,13 @@ function normalizeExports(exports?: Json, name = 'export'): { [as: string]: stri
 
 export function readModuleFile(
   filename: string,
-  cb: AsyncResultCallback<ModuleSource, JasprError>,
+  cb: ErrCallback<ModuleSource>,
   history?: string[]
 ): void {
   filename = path.normalize(filename)
   if (history) {
     if (history.indexOf(filename) >= 0) {
-      return cb(undefined, {$schema: currentSchema})
+      return cb(null, {$schema: currentSchema})
     }
     history.push(filename)
   }
@@ -144,13 +140,13 @@ export function readModuleFile(
     // Error check
     if (err != null) return cb({
       err: 'ReadFailed', why: 'failed to read module file', filename,
-      'node-error': {
+      'nodeError': {
         name: err.name,
         message: err.message,
         errno: err.errno || null,
         path: err.path || null
       }
-    })
+    }, null)
 
     // Parse
     let src: Json
@@ -168,14 +164,14 @@ export function readModuleFile(
         return cb({
           err: 'ParseFailed', why: ex.message,
           filename: filename || null, line, column
-        })
+        }, null)
       } else throw ex
     }
 
     if (!isObject(src)) return cb({
       err: 'BadModule', why: 'module is not an object',
       module: src, filename
-    })
+    }, null)
     
     // Format imports and exports
     src.$import = normalizeImports(src.$import || src.$imports)
@@ -185,7 +181,7 @@ export function readModuleFile(
 
     // Validate string properties if this is not an include file
     const done: (m: ModuleSource) => void =
-      history ? src => cb(undefined, src) :
+      history ? src => cb(null, src) :
       src => {
         if (src.$schema !== currentSchema) return cb({
           err: 'BadModule', why: 'bad or missing $schema property',
@@ -195,13 +191,13 @@ export function readModuleFile(
             supported schema is "${currentSchema}".
           `.trim().replace(/\s+/gm, ' '),
           schema: src.$schema || null, filename
-        })
+        }, null)
         for (let key of ['$module', '$doc', '$author']) {
           if (src.hasOwnProperty(key) && typeof src[key] !== 'string') {
             return cb(<any>{
               err: 'BadModule', why: `${key} is not a string`,
               [key]: src[key], filename
-            })
+            }, null)
           }
         }
         if (src.hasOwnProperty('$module') &&
@@ -209,9 +205,9 @@ export function readModuleFile(
           return cb(<any>{
             err: 'BadModule', why: 'bad module name ($module property)',
             $module: src.$module, filename
-          })
+          }, null)
         }
-        cb(undefined, src)
+        cb(null, src)
       }
 
     // Load includes
@@ -225,12 +221,12 @@ export function readModuleFile(
           else if (typeof include !== 'string') return cb({
             err: 'BadModule', why: 'include is not a string',
             include, filename
-          })
+          }, null)
           const incFilename =
             path.isAbsolute(include)
             ? include : path.join(path.dirname(filename), include)
           readModuleFile(incFilename, (err, included) => {
-            if (err) return cb(err)
+            if (err) return cb(err, null)
             includeNext(mergeModules(
               <ModuleSource>mod, <ModuleSource>included,
               filename, incFilename))
@@ -240,7 +236,7 @@ export function readModuleFile(
       } else cb({
         err: 'BadModule', why: '$include is not an array', $include: includes,
         filename
-      })
+      }, null)
     } else done(<ModuleSource>src)
   })
 }
@@ -252,7 +248,7 @@ function mergeModules(
   return _.assignInWith(left, right, (l: Json, r: Json, name: string): Json => {
     if (l === undefined) return r
     if (r === undefined) return l
-    function mergeNames(ln: any, rn: any, kind: string): Dictionary<string> {
+    function mergeNames(ln: any, rn: any, kind: string): {[k: string]: string} {
       return _.assignInWith(ln, rn, (l: string, r: string, name: string): string => {
         if (l === undefined) return r
         if (r === undefined) return l
@@ -299,26 +295,28 @@ function loadImport(
   alias: string,
   {from, via, module, version, names} : Import,
   filename: string,
-  localModules = new Map<string, Module>()
-): Scope {
-  if (!moduleNameRegex.test(alias)) throw {
+  localModules = new Map<string, Promise<Module>>()
+): Promise<Scope> {
+  if (!moduleNameRegex.test(alias)) return Promise.reject({
     err: 'BadModule', why: 'illegal import alias; contains special characters',
     alias, filename
-  }
-  if (via !== 'local') throw {
+  })
+  if (via !== 'local') return Promise.reject({
     err: 'NotImplemented', why: `import loader ${via} is not yet implemented`,
     filename
-  }
+  })
   const imported = localModules.get(from)
-  if (!imported) throw {
+  if (imported) return imported.then(mod => {
+    if (mod.$module == null) throw {
+      err: 'BadModule', why: 'cannot import script module', module: alias,
+      help: 'A module without a $module key is a script module, and cannot be imported.'
+    }
+    return importModule(mod, alias, names === true ? undefined : (names || {}))
+  })
+  else return Promise.reject({
     err: 'BadModule', why: 'local import not found', importedModule: from,
     filename
-  }
-  if (imported.$module == null) throw {
-    err: 'BadModule', why: 'cannot import script module', module: alias,
-    help: 'A module without a $module key is a script module, and cannot be imported.'
-  }
-  return importModule(imported, alias, names === true ? undefined : (names || {}))
+  })
 }
 
 export function evalModule(
@@ -328,75 +326,76 @@ export function evalModule(
     filename: string,
     scope?: Scope,
     runMain?: boolean,
-    localModules?: Map<string, Module>
-  },
-  cb: AsyncResultCallback<Module, JasprError>,
-): void {
+    localModules?: Map<string, Promise<Module>>
+  }
+): Promise<Module> {
   const {runMain, filename} = options
   const {$schema, $module, $version, $main, $import, $export, $doc, $author} = module
-  if ($module === undefined && $main === undefined) return cb({
+  if ($module === undefined && $main === undefined) return Promise.reject({
     err: 'BadModule', why: 'module must have either $module key or $main key',
     filename
   })
 
-  let evalScope
-  try {
-    evalScope = _.toPairs($import || {}).reduce(
-      (scope, [alias, imp]) => mergeScopes(env, scope,
-        loadImport(alias, ($import || {})[alias], filename,
-                   options.localModules)),
-      options.scope || emptyScope)
-  } catch (err) { return cb(err) }
+  const imports: [string, Import][] = _.toPairs($import || {})
+  return (function nextImport(scope: Scope): Promise<Module> {
+    const popped = imports.pop()
+    if (popped) {
+      const [alias, imp] = popped
+      return loadImport(alias, imp, filename, options.localModules).then(
+        imported => nextImport(mergeScopes(env, scope, imported)))
+    } else {
+      const defs: JasprObject = _.omit(
+        _.pickBy(module, v => v !== undefined),
+        ...Object.keys(module).filter(x => x.startsWith('$')))
+      const ns = {$module: $module || null, $version: $version || null}
+      const nameError = validateNames(defs, ns)
+      if (nameError != null) return Promise.reject(nameError)
+      const mod = evalDefs(env, scope, [], undefined, defs, ns)
 
-  const defs: JasprObject = _.omit(
-    _.pickBy(module, v => v !== undefined),
-    ...Object.keys(module).filter(x => x.startsWith('$')))
-  const ns = {$module: $module || null, $version: $version || null}
-  const nameError = validateNames(defs, ns)
-  if (nameError != null) return cb(nameError)
-  const scope = evalDefs(env, evalScope, [], undefined, defs, ns)
-    
-  // TODO: Remove this debug code!
-  // ---------------------------------------------------------------------------
-  for (let k in scope.value) {
-    const v = scope.value[k]
-    if (v instanceof Deferred) {
-      const timeout =
-        setTimeout(() => console.warn(`value.${k} has not resolved!`), 2500)
-      v.await(() => clearTimeout(timeout))
-    }
-  }
-  for (let k in scope.macro) {
-    const v = scope.macro[k]
-    if (v instanceof Deferred) {
-      const timeout =
-        setTimeout(() => console.warn(`macro.${k} has not resolved!`), 2500)
-      v.await(() => clearTimeout(timeout))
-    }
-  }
-  // ---------------------------------------------------------------------------
+      // TODO: Remove this debug code!
+      // -----------------------------------------------------------------------
+      for (let k in mod.value) {
+        const v = mod.value[k]
+        if (v instanceof Deferred) {
+          const timeout =
+            setTimeout(() => console.warn(`value.${k} has not resolved!`), 2500)
+          v.await(() => clearTimeout(timeout))
+        }
+      }
+      for (let k in mod.macro) {
+        const v = mod.macro[k]
+        if (v instanceof Deferred) {
+          const timeout =
+            setTimeout(() => console.warn(`macro.${k} has not resolved!`), 2500)
+          v.await(() => clearTimeout(timeout))
+        }
+      }
+      // -----------------------------------------------------------------------
 
-  scope.$schema = $schema
-  scope.$module = $module || null
-  scope.$version = $version || null
-  scope.$doc = $doc || null
-  scope.$author = $author || null
-  scope.$import = $import || Object.create(null)
-  scope.$export = $export || Object.create(null)
-  //scope.$main = runMain && $main !== undefined
-  //  ? deferExpandEval(env, scope, $main, qualify(ns, '$main'))
-  //  : null
-  cb(undefined, <Module>scope)
+      return Promise.resolve(Object.assign(mod, {
+        $schema,
+        $module: $module || null,
+        $version: $version || null,
+        $doc: $doc || null,
+        $author: $author || null,
+        $import: $import || Object.create(null),
+        $export: $export || Object.create(null),
+        $main: options.runMain && $main !== undefined
+          ? expandAndEval(env, mod, [], undefined, $main)
+          : null
+      }))
+    }
+  })(options.scope || emptyScope)
 }
 
 export function importModule(
   module: Module,
   alias = module.$module,
-  names: Dictionary<string> =
+  names: {[name: string]: string} =
     _(module.$export).keys().map(k => [k, k]).fromPairs().value()
 ): Scope {
-  function onlyExports<T>(sc: Dictionary<T>): Dictionary<T> {
-    const out: Dictionary<T> = Object.create(null)
+  function onlyExports<T>(sc: {[name: string]: T}): {[name: string]: T} {
+    const out: {[name: string]: T} = Object.create(null)
     _.forIn(module.$export, (exported, as) => {
       const qualified = qualify(module, exported)
       if (has(sc, qualified)) {

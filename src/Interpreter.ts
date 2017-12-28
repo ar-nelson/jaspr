@@ -1,5 +1,4 @@
 import * as _ from 'lodash'
-import * as async from 'async'
 import {legalName, number} from './Parser'
 import * as Names from './ReservedNames'
 import {NativeFn, NativeSyncFn, NativeAsyncFn} from './NativeFn'
@@ -304,7 +303,7 @@ const gensymRegex = /^[.]([^.]+)[.]$/
 function innerSyntaxQuote(
   env: Env,
   code: Jaspr,
-  qualified: Dictionary<string>,
+  qualified: {[unqualified: string]: string},
   gensyms: (name: string) => string
 ): {result: Jaspr, flat: boolean} {
   if (isArray(code) && code.length > 0) {
@@ -367,7 +366,7 @@ function innerSyntaxQuote(
 function syntaxQuote(
   env: Env,
   code: Jaspr | Deferred,
-  qualified: Dictionary<string>,
+  qualified: {[unqualified: string]: string},
   gensyms: (name: string) => string
 ): Jaspr | Deferred {
   try {
@@ -390,7 +389,7 @@ function syntaxQuote(
 
 function subst(
   code: Jaspr,
-  substs: Dictionary<Jaspr>,
+  substs: {[original: string]: string},
   nested: boolean = false
 ): Jaspr {
   if (isArray(code) && code.length > 0) {

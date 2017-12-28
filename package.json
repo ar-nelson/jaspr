@@ -1,27 +1,30 @@
 {
   "name": "jaspr",
-  "version": "0.1.171226",
+  "version": "0.1.171228",
   "description": "JaSPR (JSon PRocessing) is a JSON-based Lisp-like language with async-by-default semantics",
-  "main": "dist/src/Repl.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc",
     "pretest": "tsc",
     "test": "mocha dist/test/*Test.js",
-    "repl": "node ./dist/src/Repl.js",
+    "repl": "node ./dist/src/index.js",
     "prerepl": "tsc"
   },
+  "bin": {"jaspr": "dist/src/index.js"},
   "author": "Adam R. Nelson <adam@nels.onl>",
   "license": "ISC",
   "dependencies": {
-    "async": "^2.5.0",
     "chalk": "^2.3.0",
+    "command-line-args": "^4.0.7",
+    "command-line-usage": "^4.0.2",
     "lodash": "^4.17.4",
+    "printable-characters": "^1.0.38",
     "string-length": "^2.0.0",
     "xregexp": "^3.2.0"
   },
   "devDependencies": {
-    "@types/async": "^2.0.42",
     "@types/chai": "^4.0.4",
+    "@types/command-line-args": "^4.0.2",
     "@types/lodash": "^4.14.74",
     "@types/mocha": "^2.2.43",
     "@types/node": "^8.0.30",

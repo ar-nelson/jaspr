@@ -38,7 +38,7 @@ export interface JasprError extends JasprObject {
 }
 
 export type Callback = (x: Jaspr) => void
-export type ErrCallback = (err: JasprError | null, x: Jaspr) => void
+export type ErrCallback<T> = (err: JasprError | null, x: T | null) => void
 
 /** 
  * A Deferred object is a lazy value. It is a simplified promise, without
@@ -103,7 +103,7 @@ export function toBool(a: Jaspr): boolean {
   else return !!a
 }
 
-export function getIndex(index: number, array: JasprArray, cb: ErrCallback): void {
+export function getIndex(index: number, array: JasprArray, cb: ErrCallback<Jaspr>): void {
   const it = array[index]
   if (it === undefined) {
     cb({err: 'NoKey', why: 'array index out of bounds', key: index, in: array,}, null)
@@ -112,7 +112,7 @@ export function getIndex(index: number, array: JasprArray, cb: ErrCallback): voi
   } else cb(null, it)
 }
 
-export function getKey(key: string, object: JasprObject, cb: ErrCallback): void {
+export function getKey(key: string, object: JasprObject, cb: ErrCallback<Jaspr>): void {
   const it = object[key]
   if (it === undefined || _.isFunction(it)) {
     cb({err: 'NoKey', why: 'key not found in object', key, in: object}, null)
@@ -121,7 +121,7 @@ export function getKey(key: string, object: JasprObject, cb: ErrCallback): void 
   } else cb(null, it)
 }
 
-export function resolveFully(root: Jaspr, cb: ErrCallback, jsonOnly = false): void {
+export function resolveFully(root: Jaspr, cb: ErrCallback<Jaspr>, jsonOnly = false): void {
   let pending = 1, stack: Jaspr[] = [], history = new Set<JasprObject>()
   function loop(toPush: Jaspr) {
     pending--

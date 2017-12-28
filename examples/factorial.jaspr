@@ -1,0 +1,6 @@
+$schema: "http://adam.nels.onl/schema/jaspr/module"
+$module: example.factorial
+$version: “1.0”
+
+factorial: (λ if (≤ _ 1) 1 (× _ (factorial (dec _))))
+$main: (inspect! (factorial 10))

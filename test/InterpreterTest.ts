@@ -199,16 +199,16 @@ describe('eval', () => {
   }))
   it('calls asynchronous native functions that return immediately', withEnv((env, should) => {
     evalExpr(env, emptyScope,
-      [['', new NativeAsyncFn(function ([], cb) {cb(undefined, 42)}).toClosure(env)]],
+      [['', new NativeAsyncFn(function ([], cb) {cb(null, 42)}).toClosure(env)]],
       should.equal(42))
     evalExpr(env, emptyScope,
       [['', new NativeAsyncFn(function ([a, b], cb) {
-          cb(undefined, <any>a - <any>b)
+          cb(null, <any>a - <any>b)
         }).toClosure(env)], 2, ['', 3]],
       should.equal(-1))
     evalExpr(env, emptyScope,
       [['', new NativeAsyncFn(function ([], cb) {
-          cb(undefined, this.closureName)
+          cb(null, this.closureName)
         }).toClosure(env)]],
       should.equal(env.closureName)) 
   }))
@@ -266,16 +266,16 @@ describe('macroexpand', () => {
       should.equal(3))))
   it('calls asynchronous native functions that return immediately', withEnv((env, should) => {
     macroExpand(env, macros({
-      m: new NativeAsyncFn(function ([], cb) {cb(undefined, 42)}).toClosure(env)
+      m: new NativeAsyncFn(function ([], cb) {cb(null, 42)}).toClosure(env)
     }), ['m'], should.equal(42))
     macroExpand(env, macros({
       m: new NativeAsyncFn(function ([a, b], cb) {
-        cb(undefined, <any>a - <any>b)
+        cb(null, <any>a - <any>b)
       }).toClosure(env)
     }), ['m', 2, 3], should.equal(-1))
     macroExpand(env, macros({
       m: new NativeAsyncFn(function ([], cb) {
-        cb(undefined, this.closureName)
+        cb(null, this.closureName)
       }).toClosure(env)
     }), ['m'], should.equal(env.closureName)) 
   }))

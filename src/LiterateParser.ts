@@ -23,6 +23,8 @@ const emptyBlockquote = /^[ ]{0,3}>\s*$/
 const codeFence = /^[ ]{0,3}(```+|~~~+)\s*(\w+)?[^`~]*$/
 const indentedCode = /^(    |[ ]{0,3}\t)(\s*\S+.*)$/
 
+export const markdownExtensions = ['.md', '.mkd', '.markdown']
+
 export function parseMarkdown(src: string, filename?: string): JsonObject {
   const srcParser = new Parser(filename)
   const tests: { [name: string]: Json } = {}

@@ -218,7 +218,7 @@ export class Root extends Branch {
   readonly _closureName = this.gensym('closure')
   readonly _signalHandlerVar = makeDynamic(
     new NativeAsyncFn(function rootErrorHandler([err], cb) {
-      this.unhandledError(err, v => cb(undefined, v))
+      this.unhandledError(err, v => cb(null, v))
     }).toClosure(this))
   readonly _nameVar = makeDynamic(null)
   get closureName() { return this._closureName }
