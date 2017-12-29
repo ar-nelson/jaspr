@@ -14,15 +14,31 @@ import {prefix, primitiveModule} from './ReservedNames'
 import Parser from './Parser'
 import {parseMarkdown, markdownExtensions} from './LiterateParser'
 
+/** The JSON schema URL that all Jaspr modules must contain */
 export const currentSchema = "http://adam.nels.onl/schema/jaspr/module"
 
+/** Enumeration of all valid module sources */
 export type ImportSource = 'local' | 'file' | 'http' | 'git'
 
+/**
+ * An import clause, from the `$import` section of a Jaspr module.
+ * Contains a module name and version, and specifies where the module should be
+ * loaded from and what names can be included in the top-level scope.
+ */
 export interface Import extends JsonObject {
+  /** Path or URL to load the module from; format depends on `via` */
   from: string
+  /** Type of source to load the module from (http, file, git, etc.) */
   via: ImportSource
+  /** Name of the module to import */
   module: string
+  /** Optional module version; if not present, most recent version */
   version: string | null
+  /** 
+   * Names from the module to include in the top-level scope (unqualified).
+   * May create aliases. `false` is equivalent to `{}`; `true` imports
+   * everything.
+   */
   names: boolean | { [as: string]: string }
 }
 

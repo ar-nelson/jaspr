@@ -4,31 +4,76 @@ import * as Names from './ReservedNames'
 import {NativeFn, NativeSyncFn, NativeAsyncFn} from './NativeFn'
 import {
   Jaspr, JasprArray, JasprObject, JasprError, isArray, isObject, Deferred,
-  Callback, getIndex, getKey, resolveFully, toString, toBool, magicSymbol, has
+  Callback, resolveFully, toString, toBool, magicSymbol, has
 } from './Jaspr'
 
 import prettyPrint from './PrettyPrint'
 
+/**
+ * A Jaspr scope is made up of _contexts_, which map names to values:
+ * 
+ * - `value` is the default context, containing runtime values and functions.
+ *   The majority of Jaspr code is only concerned with this context.
+ * - `macro` contains macro functions.
+ * - `check` is for check macros, a planned feature (not yet implemented)
+ * - `test` is for unit tests
+ * - `doc` is for documentation strings
+ * 
+ * These built-in context names are listed in {@link topLevelContexts}.
+ * 
+ * A scope may contain additional user-defined contexts, but they must be
+ * prefixed with a module name and contain at least one `.`.
+ */
 export interface Scope extends JasprObject {
+  /** The `value` context, containing runtime values and functions */
   value: JasprObject
+  /** The `macro` context, containing macro functions */
   macro: JasprObject
+  /** The `check` context, currently not used (planned future feature) */
   check: JasprObject
+  /** The `test` context, containing unit tests */
   test: JasprObject
+  /** The `doc` context, containing documentation strings */
   doc: { [name: string]: string }
+  /** `qualified` is not a context. It maps unqualified names in the scope to
+   *  fully-qualified names; it is used by `syntaxQuote` to qualify names. */
   qualified: { [unqualified: string]: string }
 }
 
+/** The empty scope */
 export const emptyScope: Scope =
   {value: {}, macro: {}, check: {}, doc: {}, test: {}, qualified: {}}
 
+/** 
+ * The set of built-in context names. These are the only legal context names
+ * that do not contain `.`. They are also the required properties of the
+ * {@link Scope} interface.
+ */
+export const topLevelContexts = new Set(['value', 'macro', 'check', 'doc', 'test'])
+
+/**
+ * A Jaspr object that is a dynamic variable reference. Although TypeScript
+ * cannot specify this requirement, all dynamic variable references must be
+ * magic objects (have the symbol property {@link magicSymbol} with the value
+ * {@link dynamicMarker}).
+ */
 export interface JasprDynamic extends JasprObject {
-  $dynamic: true, $default: Jaspr | Deferred
+  /** Marker field for dynamic variable references */
+  $dynamic: true
+  /** The default value of this dynamic variable */
+  $default: Jaspr | Deferred
 }
 
+/** Tests whether `it` is a magic dynamic variable reference. */
 export function isDynamic(it: Jaspr): it is JasprDynamic {
   return isObject(it) && it[magicSymbol] === dynamicMarker
 }
 
+/**
+ * Creates a new dynamic variable reference.
+ * 
+ * @param defaultValue The default value of the dynamic variable
+ */
 export function makeDynamic(defaultValue: Jaspr | Deferred): JasprDynamic {
   return <JasprDynamic>{
     [Names.dynamic]: true,
@@ -37,53 +82,192 @@ export function makeDynamic(defaultValue: Jaspr | Deferred): JasprDynamic {
   }
 }
 
+/**
+ * An associative linked list that maps dynamic value references to their
+ * values. New entries can be added by appending to the front of the list.
+ */
 export interface DynamicMap {
-  key: JasprDynamic,
-  value: Jaspr | Deferred,
+  /** The dynamic variable reference */
+  key: JasprDynamic
+  /** The value of the dynamic variable `key` */
+  value: Jaspr | Deferred
+  /** The next cell in the linked list */
   next?: DynamicMap
 }
 
+/**
+ * Tests whether `it` is a closure.
+ * 
+ * @param env The environment in which `it` may be a closure. Necessary because
+ *   the `closureName` key is different in each environment.
+ * @param it The value that may be a closure.
+ */
 export function isClosure(env: Env, it: Jaspr): it is JasprObject {
   return (isObject(it) && env.closureName in it)
 }
 
+/**
+ * Tests whether `it` evaluates to itself. This is true if `it` is `null`, a
+ * boolean, a number, `""`, `[],` or `{}`.
+ * 
+ * @param it The value to test.
+ */
+function isLiteral(it: Jaspr | Deferred) {
+  return !it || it === true || typeof it === "number" || _.isEmpty(it)
+}
+
+/**
+ * A Jaspr environment, the context in which Jaspr code in evaluated. Contains
+ * all context information that is _not_ contained in either the scope or the
+ * dynamic variables, including:
+ * 
+ * - Current fiber
+ * - Current junction branch and cancellation handlers
+ * - Instance-specific variables, such as `closureName`
+ */
 export interface Env {
-  defer(props?: () => DeferProperties): Deferred
+  /**
+   * Spawns a new fiber that is part of this environment's current junction
+   * branch.
+   * 
+   * @param desc A function that generates a description of the fiber, for
+   *   debugging purposes. Will not be called unless this debug information is
+   *   viewed.
+   */
+  defer(desc?: () => FiberDescriptor): Deferred
+
+  /**
+   * Creates a new choice junction that is a child of this environment's current
+   * junction branch. A branch is created for each function in the array
+   * `branches`, and, once the callback passed to one of the branch functions is
+   * called, the other branches are canceled.
+   * 
+   * @param branches An array of functions that execute each of the branches of
+   *   the junction. Each function is passed two arguments: an environment that
+   *   is inside the branch, and a callback that resolves the branch and cancels
+   *   the others.
+   * @param desc A function that generates a description of the fiber, for
+   *   debugging purposes. Will not be called unless this debug information is
+   *   viewed.
+   */
   junction(
     branches: ((env: Env, cb: Callback) => void)[],
-    props?: () => DeferProperties
+    desc?: () => FiberDescriptor
   ): Deferred
+
+  /**
+   * Called when a signal is raised but no signal handler is available to handle
+   * it.
+   * 
+   * @param err The raised signal.
+   * @param cb Callback that is called with a resume value, if one is provided.
+   */
   unhandledError(err: Jaspr, cb: Callback): void
+
+  /** Cancels this environment's current junction branch. */
   cancel(): void
+
+  /**
+   * Registers `fn` as a cancel event handler for this environment's current
+   * junction branch. Does nothing if the branch is already canceled.
+   * 
+   * @param fn The function to call when the branch is canceled.
+   */
   onCancel(fn: () => void): void
+
+  /**
+   * Generates a new string that is (probabilistically) guaranteed to be unique.
+   * 
+   * @param prefix If present, this string will be appended to the front of the
+   *   generated string.
+   */
   gensym(prefix?: string): string
+
+  /** A unique, random string used as the key that contains a closure object's
+   *  scope. */
   closureName: string
+
+  /** Dynamic variable that contains the current signal handler, with a default
+   *  value that calls `unhandledError`. */
   signalHandlerVar: JasprDynamic
+
+  /** Dynamic variable that contains the fully-qualified name of the value
+   *  currently being evaluated. Its default value is `null`. */
   nameVar: JasprDynamic
 }
 
-export interface DeferProperties {
+/**
+ * Debug information for a fiber. Describes the kind of action the fiber is
+ * performing, the code it is evaluating, and the name of the top-level value
+ * the evaluated code is contained in.
+ */
+export interface FiberDescriptor {
   action: Action
   code?: Jaspr | Deferred
   name?: string
 }
 
+/**
+ * Action type used by {@link DeferProperties}. Enumerates the types of named
+ * actions that a fiber can perform.
+ */
 export type Action =
   'root' | 'eval' | 'macroexpand' | 'check' | 'junction' | 'send' | 'recv' |
   'apply' | 'external' 
 
+/**
+ * Tests whether `name` is a legal top-level Jaspr identifier. Legal
+ * identifiers cannot contain reserved characters or `.`, cannot start with `$`,
+ * and cannot be one of the reserved words `null`, `true`, or `false`.
+ */
 export function isLegalName(name: string) {
   return name !== 'null' && name !== 'true' && name !== 'false' &&
          legalName.test(name) && !number.test(name)
 }
 
-export const topLevelPrefixes = new Set(['value', 'macro', 'check', 'doc', 'test'])
-
+/**
+ * Waits for the possibly-deferred value `v` to resolve, then calls `cb` with
+ * `v`'s resolved value.
+ * 
+ * @param v The possibly-deferred value to wait on.
+ * @param cb The callback to call when `v` resolves.
+ */
 export function waitFor(v: Jaspr | Deferred, cb: Callback): void {
   if (v instanceof Deferred) v.await(cb)
   else cb(v)
 }
 
+/**
+ * Waits for `first` to resolve, then calls `fn` with the resulting value.
+ * Returns a value that resolves to the return value of `fn`. May spawn a fiber
+ * to wait on `first` or `fn`.
+ * 
+ * @param env The environment used to spawn a fiber, if necessary.
+ * @param first The value to wait on before calling `fn`.
+ * @param fn Callback that takes the resolved value of `first`, then returns a
+ *   (possibly deferred) value that becomes the return value of `then`.
+ * @param desc Function that returns a debug descriptor for the fiber that may
+ *   be spawned to wait on `first`/`fn`.
+ */
+function then(
+  env: Env,
+  first: Jaspr | Deferred,
+  fn: (x: Jaspr) => Jaspr | Deferred,
+  desc: () => FiberDescriptor
+): Jaspr | Deferred {
+  if (first instanceof Deferred) {
+    const d = env.defer(desc)
+    first.await(x => waitFor(fn(x), y => d.resolve(y)))
+    return d
+  } else return fn(first)
+}
+
+/**
+ * Internal error type used to stop synchronous code execution when a deferred
+ * value is encountered. When this error is thrown during evaluation, the
+ * current evaluation step returns a {@link Deferred} value and moves on to the
+ * next piece of code that can be evaluated synchronously.
+ */
 class DeferredError extends Error {
   readonly waitingOn: Deferred
 
@@ -93,6 +277,7 @@ class DeferredError extends Error {
   }
 }
 
+/** Throws {@link DeferredError} if `v` is not immediately available. */
 function expect<T extends Jaspr>(v: T | Deferred): T {
   if (v instanceof Deferred) {
     if (v.value !== undefined) return <T>v.value
@@ -100,6 +285,15 @@ function expect<T extends Jaspr>(v: T | Deferred): T {
   } else return v
 }
 
+/**
+ * Creates a new scope that is the right-biased merge of every scope in
+ * `scopes`.
+ * 
+ * @param env An environment in which to perform the merge. This is necessary
+ *   because merging deferred values may require the creation of new fibers.
+ * @param scopes The scopes to merge. Values in later scopes may override values
+ *   with the same name and context in earlier scopes.
+ */
 export function mergeScopes(env: Env, ...scopes: Scope[]): Scope {
   return scopes.reduce((l, r) => _.assignInWith(l, r,
     (l: Jaspr | Deferred, r: Jaspr | Deferred, name: string): Jaspr | Deferred => {
@@ -116,11 +310,51 @@ export function mergeScopes(env: Env, ...scopes: Scope[]): Scope {
     }), {value: {}, macro: {}, check: {}, doc: {}, test: {}, qualified: {}})
 }
 
+/** Any object that contains a module name and a version. */
+export interface Namespace {
+  $module: string | null,
+  $version: string | null
+}
+
+/** Returns the fully-qualified version of `name` in namespace `ns`. */
+export function qualify(ns: Namespace, name: string): string {
+  if (ns.$module) return `${ns.$module}.${name}@${ns.$version || ''}`
+  else return name
+}
+
+/** 
+ * Marker symbol for `$closure` calls that weren't expanded at macro expansion
+ * time due to runtime macro definitions. Expressions marked with this symbol
+ * will be macroexpanded again before they are evaluated.
+ */
 const unexpandedSymbol = Symbol('unexpandedMacros')
 
+/** 
+ * A unique object that, when stored in the {@link magicSymbol} property of a
+ * {@link JasprObject}, marks that object as a magic closure which may contain
+ * self-references.
+ */
 export const closureMarker = {}
+
+/**
+ * A unique object that, when stored in the {@link magicSymbol} property of a
+ * {@link JasprObject}, marks that object as a dynamic variable.
+ */
 export const dynamicMarker = {}
 
+/**
+ * Raises an error signal in the given environment and dynamic variable context.
+ * The signal may be caught by a signal handler in a dynamic variable, or it may
+ * be handled by the environment's default signal handler.
+ * 
+ * Returns a value that resolves with the resume value provided by the signal
+ * handler, if/when one is provided.
+ * 
+ * @param env The environment to raise the signal in.
+ * @param dynamics A map from dynamic variables to values, which may contain a
+ *   signal handler.
+ * @param error The error signal to raise.
+ */
 export function raise(
   env: Env,
   dynamics: DynamicMap | undefined,
@@ -137,7 +371,22 @@ export function raise(
   return d
 }
 
-function macroExpandTop(
+/**
+ * Recursively performs macro application. As long as `code` is an array whose
+ * first element is the name of a macro function in `scope`'s `macro` context,
+ * `macroExpandTop` will call that macro function, then recursively expand the
+ * result. All other values are returned unchanged.
+ * 
+ * This function also handles `$syntaxQuote` (which is sort of a macro function)
+ * by calling {@link syntaxQuote}.
+ * 
+ * @param env The environment in which to perform the macro expansion.
+ * @param scope The lexical bindings available to the macro expansion.
+ * @param dynamics The dynamic variable bindings available to the macro
+ *   expansion.
+ * @param code The code to expand.
+ */
+function macroApply(
   env: Env,
   scope: Scope,
   dynamics: DynamicMap | undefined,
@@ -146,77 +395,88 @@ function macroExpandTop(
   let recur: Jaspr | Deferred | undefined = undefined
   try {
     code = expect(code)
-    if (isArray(code)) {
-      if (code.length > 0) {
-        let fn = expect(code[0])
-        if (fn === Names.syntaxQuote) {
-          if (code.length === 2) {
-            try {
-              const syms = new Map<string, string>()
-              recur = syntaxQuote(env, code[1], scope.qualified,
-                function gensyms(name: string): string {
-                  let sym = syms.get(name)
-                  if (!sym) {
-                    sym = env.gensym(name)
-                    syms.set(name, sym)
-                  }
-                  return sym
-                })
-              } catch (e) {
-                if (e instanceof Error) throw e
-                else recur = raise(env, dynamics, e)
+    if (isArray(code) && code.length > 0) {
+      let fn = expect(code[0])
+      if (fn === Names.syntaxQuote) {
+        if (code.length !== 2) return raise(env, dynamics, {
+          err: 'BadArgs',
+          why: `${Names.syntaxQuote} takes 1 argument, got ${code.length - 1}`,
+          fn: Names.syntaxQuote, args: code.slice(1)
+        })
+        try {
+          const syms = new Map<string, string>()
+          recur = syntaxQuote(env, code[1], scope.qualified,
+            function gensyms(name: string): string {
+              let sym = syms.get(name)
+              if (!sym) {
+                sym = env.gensym(name)
+                syms.set(name, sym)
               }
-          } else return raise(env, dynamics, {
-            err: 'BadArgs',
-            why: `${Names.syntaxQuote} takes 1 argument, got ${code.length - 1}`,
-            fn: Names.syntaxQuote, args: code.slice(1)
-          })
-        } else if (typeof fn === 'string' && scope.macro[fn] !== undefined) {
-          recur = call(env, scope.macro[fn], code.slice(1), dynamics)
+              return sym
+            })
+        } catch (e) {
+          if (e instanceof Error) throw e
+          // syntaxQuote throws when it raises a signal
+          else recur = raise(env, dynamics, e)
         }
+      } else if (typeof fn === 'string' && scope.macro[fn] !== undefined) {
+        recur = call(env, scope.macro[fn], code.slice(1), dynamics)
       }
     }
   } catch (e) {
     if (e instanceof DeferredError) {
+      // If a DeferredError was thrown, execution can't continue synchronously.
+      // Wait for the deferred value to resolve, then try again.
       const deferred = env.defer(() => ({action: 'macroexpand', code}))
       e.waitingOn.await(() =>
-        waitFor(macroExpandTop(env, scope, dynamics, code),
+        waitFor(macroApply(env, scope, dynamics, code),
           x => deferred.resolve(x)))
       return deferred
     } else throw e
   }
   if (recur === undefined) return code
-  else return macroExpandTop(env, scope, dynamics, recur)
+  else return macroApply(env, scope, dynamics, recur)
 }
 
-function isLiteral(code: Jaspr | Deferred) {
-  return !code || code === true || typeof code === "number" || _.isEmpty(code)
-}
-
+/**
+ * Recursively performs macro expansion on `code`, using the macro definitions
+ * in the `macro` context of `scope`. Arrays that represent applications of
+ * macro functions will be replaced with the result of applying those functions.
+ * 
+ * Macro expansion continues recursively into the elements of arrays and the
+ * values of objects. Quoted values are not expanded. Closure bodies and defs
+ * are expanded if the defs do not contain any macro definitions.
+ * 
+ * Macro expansion is idempotent: it recurs until a fixed point is reached, then
+ * calling `macroExpand` on the output should result in the same output.
+ * 
+ * @param env The environment in which to perform the macro expansion.
+ * @param scope The lexical bindings available to the macro expansion.
+ * @param dynamics The dynamic variable bindings available to the macro
+ *   expansion.
+ * @param code The code to expand.
+ */
 export function macroExpand(
   env: Env,
   scope: Scope,
   dynamics: DynamicMap | undefined,
   code: Jaspr | Deferred
 ): Jaspr | Deferred {
+
+  // Step 1: Apply macro functions
   try {
     code = expect(code)
     if (isLiteral(code) || typeof code === "string") return code
     if (isArray(code) && code.length > 0 &&
           !(code.length === 2 && expect(code[0]) === '') &&
           !(code.length === 4 && expect(code[0]) === Names.closure)) {
-      return then(env, macroExpandTop(env, scope, dynamics, code), postExpand,
+      return then(env, macroApply(env, scope, dynamics, code), postExpand,
         () => ({action: 'macroexpand', code}))
     }
   } catch (e) { return retry(e, () => macroExpand(env, scope, dynamics, code)) }
   return postExpand(code)
-  function retry(e: any, fn: () => Jaspr | Deferred): Deferred {
-    if (e instanceof DeferredError) {
-      const deferred = env.defer(() => ({action: 'macroexpand', code}))
-      e.waitingOn.await(() => waitFor(fn(), x => deferred.resolve(x)))
-      return deferred
-    } else throw e
-  }
+
+  // Step 2: Recur into elements of arrays/objects
   function postExpand(code: Jaspr): Jaspr | Deferred {
     try {
       if (isObject(code)) {
@@ -230,6 +490,8 @@ export function macroExpand(
       } else if (isArray(code)) {
         if (code.length === 2 && expect(code[0]) === '') return code
         const out = new Array<Jaspr | Deferred>(code.length)
+        // Special case: closures
+        // Only recur into closures if they do not define any new macros
         if (code.length === 4 && expect(code[0]) === Names.closure &&
             isObject(expect(code[1]))) {
           const [fn, defs, body, fields] = code
@@ -267,6 +529,8 @@ export function macroExpand(
       } else return code
     } catch (e) { return retry(e, () => postExpand(code)) }
   }
+
+  // Step 3: Perform simple optimizations to remove redundant bindings
   function optimize(code: JasprArray): Jaspr | Deferred {
     try {
       if (code.length === 1) {
@@ -296,73 +560,21 @@ export function macroExpand(
       else return retry(e, () => optimize(code))
     }
   }
+
+  // If a DeferredError was thrown, execution can't continue synchronously.
+  // Wait for the deferred value to resolve, then try again.
+  function retry(e: any, fn: () => Jaspr | Deferred): Deferred {
+    if (e instanceof DeferredError) {
+      const deferred = env.defer(() => ({action: 'macroexpand', code}))
+      e.waitingOn.await(() => waitFor(fn(), x => deferred.resolve(x)))
+      return deferred
+    } else throw e
+  }
 }
 
 const gensymRegex = /^[.]([^.]+)[.]$/
 
-function innerSyntaxQuote(
-  env: Env,
-  code: Jaspr,
-  qualified: {[unqualified: string]: string},
-  gensyms: (name: string) => string
-): {result: Jaspr, flat: boolean} {
-  if (isArray(code) && code.length > 0) {
-    let fn = expect(code[0])
-    if (fn === '' || fn === Names.syntaxQuote) {
-      return {result: ['', code], flat: false}
-    } else if (fn === Names.unquote) {
-      if (code.length === 2) return {result: expect(code[1]), flat: false}
-      else throw {
-        err: 'BadArgs', why: `${Names.unquote} takes exactly 1 argument`,
-        fn: Names.unquote, args: code.slice(1)
-      }
-    } else if (fn === Names.unquoteSplicing) {
-      if (code.length === 2) return {result: expect(code[1]), flat: true}
-      else throw {
-        err: 'BadArgs', why: `${Names.unquoteSplicing} takes exactly 1 argument`,
-        fn: Names.unquoteSplicing, args: code.slice(1)
-      }
-    } else {
-      let toConcat: Jaspr[] = [], currentArray: Jaspr[] = []
-      for (let x of code) {
-        const {result, flat} =
-          innerSyntaxQuote(env, expect(x), qualified, gensyms)
-        if (flat) {
-          if (currentArray.length > 0) {
-            toConcat.push([[], ...currentArray])
-            currentArray = []
-          }
-          toConcat.push(result)
-        } else currentArray.push(result)
-      }
-      if (toConcat.length === 0) {
-        return {result: [[], ...currentArray], flat: false}
-      } else {
-        if (currentArray.length > 0) toConcat.push([[], ...currentArray])
-        return {result: [Names.arrayConcatQualified, ...toConcat], flat: false}
-      }
-    }
-  } else if (isObject(code)) {
-    const out: JasprObject = Object.create(null)
-    for (let key in code) {
-      const gensymMatch = gensymRegex.exec(key)
-      const setKey = gensymMatch ? gensyms(gensymMatch[1]) : key
-      const value = syntaxQuote(env, code[key], qualified, gensyms)
-      out[setKey] = value
-      if (value instanceof Deferred) value.await(v => out[setKey] = v)
-    }
-    return {result: out, flat: false}
-  } else if (typeof code === 'string') {
-    const gensymMatch = gensymRegex.exec(code)
-    return {
-      result: ['',
-        gensymMatch ? gensyms(gensymMatch[1]) :
-        typeof qualified[code] === 'string' ? qualified[code] : code],
-      flat: false
-    }
-  } else return {result: code, flat: false}
-}
-
+/** Utility function used by {@link macroApply} to perform syntax quoting */
 function syntaxQuote(
   env: Env,
   code: Jaspr | Deferred,
@@ -370,8 +582,7 @@ function syntaxQuote(
   gensyms: (name: string) => string
 ): Jaspr | Deferred {
   try {
-    const {result, flat} =
-      innerSyntaxQuote(env, expect(code), qualified, gensyms)
+    const {result, flat} = innerSyntaxQuote(expect(code))
     if (flat) throw {
       err: 'NotCallable', why: 'encountered ~@ outside of array',
       callee: Names.unquoteSplicing, args: (<any[]>expect(code)).slice(1)
@@ -379,14 +590,74 @@ function syntaxQuote(
     return result
   } catch (e) {
     if (e instanceof DeferredError) {
+      // If a DeferredError was thrown, execution can't continue synchronously.
+      // Wait for the deferred value to resolve, then try again.
       const deferred = env.defer(() => ({action: 'macroexpand', code}))
       e.waitingOn.await(() => waitFor(syntaxQuote(env, code, qualified, gensyms),
         x => deferred.resolve(x)))
       return deferred
     } else throw e
   }
+
+  function innerSyntaxQuote(code: Jaspr): {result: Jaspr, flat: boolean} {
+    if (isArray(code) && code.length > 0) {
+      let fn = expect(code[0])
+      if (fn === '' || fn === Names.syntaxQuote) {
+        return {result: ['', code], flat: false}
+      } else if (fn === Names.unquote) {
+        if (code.length === 2) return {result: expect(code[1]), flat: false}
+        else throw {
+          err: 'BadArgs', why: `${Names.unquote} takes exactly 1 argument`,
+          fn: Names.unquote, args: code.slice(1)
+        }
+      } else if (fn === Names.unquoteSplicing) {
+        if (code.length === 2) return {result: expect(code[1]), flat: true}
+        else throw {
+          err: 'BadArgs', why: `${Names.unquoteSplicing} takes exactly 1 argument`,
+          fn: Names.unquoteSplicing, args: code.slice(1)
+        }
+      } else {
+        let toConcat: Jaspr[] = [], currentArray: Jaspr[] = []
+        for (let x of code) {
+          const {result, flat} = innerSyntaxQuote(expect(x))
+          if (flat) {
+            if (currentArray.length > 0) {
+              toConcat.push([[], ...currentArray])
+              currentArray = []
+            }
+            toConcat.push(result)
+          } else currentArray.push(result)
+        }
+        if (toConcat.length === 0) {
+          return {result: [[], ...currentArray], flat: false}
+        } else {
+          if (currentArray.length > 0) toConcat.push([[], ...currentArray])
+          return {result: [Names.arrayConcatQualified, ...toConcat], flat: false}
+        }
+      }
+    } else if (isObject(code)) {
+      const out: JasprObject = Object.create(null)
+      for (let key in code) {
+        const gensymMatch = gensymRegex.exec(key)
+        const setKey = gensymMatch ? gensyms(gensymMatch[1]) : key
+        const value = syntaxQuote(env, code[key], qualified, gensyms)
+        out[setKey] = value
+        if (value instanceof Deferred) value.await(v => out[setKey] = v)
+      }
+      return {result: out, flat: false}
+    } else if (typeof code === 'string') {
+      const gensymMatch = gensymRegex.exec(code)
+      return {
+        result: ['',
+          gensymMatch ? gensyms(gensymMatch[1]) :
+          typeof qualified[code] === 'string' ? qualified[code] : code],
+        flat: false
+      }
+    } else return {result: code, flat: false}
+  }
 }
 
+/** Utility function used by {@link macroExpand} for optimization */
 function subst(
   code: Jaspr,
   substs: {[original: string]: string},
@@ -416,16 +687,25 @@ function subst(
   } else return code
 }
 
-export interface Namespace {
-  $module: string | null,
-  $version: string | null
-}
-
-export function qualify(ns: Namespace, name: string): string {
-  if (ns.$module) return `${ns.$module}.${name}@${ns.$version || ''}`
-  else return name
-}
-
+/**
+ * Calls the Jaspr value `callee` with the arguments `args` and the given
+ * environment and bindings.
+ * 
+ * Calling a number or a string uses the callee as an index into the first
+ * argument.
+ * 
+ * Calling `[]` or `{}` generates a new array or object from the arguments.
+ * 
+ * Calling a closure evaluates the closure's body with `args` bound to the
+ * special variable `$args`.
+ * 
+ * All other values are not callable, and will raise an error signal.
+ * 
+ * @param env The environment in which to perform the call.
+ * @param callee The value to call.
+ * @param args The argument of the call.
+ * @param dynamics The dynamic variable bindings available to the call.
+ */
 export function call(
   env: Env,
   callee: Jaspr | Deferred,
@@ -513,6 +793,8 @@ export function call(
     } else return notCallable('not closure, number, string, [], or {}')
   } catch (e) {
     if (e instanceof DeferredError) {
+      // If a DeferredError was thrown, execution can't continue synchronously.
+      // Wait for the deferred value to resolve, then try again.
       const deferred = env.defer(() => ({
         action: 'eval',
         code: [['', callee]].concat(args.map(a => isLiteral(a) ? a : ['', a]))
@@ -524,19 +806,17 @@ export function call(
   }
 }
 
-function then(
-  env: Env,
-  first: Jaspr | Deferred,
-  fn: (x: Jaspr) => Jaspr | Deferred,
-  props: () => DeferProperties
-): Jaspr | Deferred {
-  if (first instanceof Deferred) {
-    const d = env.defer(props)
-    first.await(x => waitFor(fn(x), y => d.resolve(y)))
-    return d
-  } else return fn(first)
-}
-
+/**
+ * Evaluates the Jaspr expression `code` with the given environment and
+ * bindings.
+ * 
+ * @param env The environment in which to evaluate `code`.
+ * @param scope Lexical bindings used when evaluating `code`.
+ * @param $args Binding for the special variable `$args`, the arguments passed
+ *   to the innermost closure.
+ * @param dynamics Dynamic variable bindings used when evaluating `code`.
+ * @param code The Jaspr code to evaluate.
+ */
 export function evalExpr(
   env: Env,
   scope: Scope,
@@ -571,6 +851,7 @@ export function evalExpr(
           fn: '', args: code.slice(1)
         })
       } else if (typeof hd === 'string' && hd.charAt(0) === Names.prefix) {
+        // special forms
         switch (hd) {
         case Names.if_: {
           const [_, pr, th, el] = code
@@ -750,6 +1031,8 @@ export function evalExpr(
     }
   } catch (e) {
     if (e instanceof DeferredError) {
+      // If a DeferredError was thrown, execution can't continue synchronously.
+      // Wait for the deferred value to resolve, then try again.
       const deferred = env.defer(() => ({action: 'eval', code}))
       e.waitingOn.await(() =>
         waitFor(evalExpr(env, scope, $args, dynamics, code),
@@ -759,6 +1042,18 @@ export function evalExpr(
   }
 }
 
+/**
+ * Performs macro expansion, then evaluation, on the same Jaspr code in the same
+ * environment and scope. This is the default Jaspr evaluation process.
+ * 
+ * @param env The environment in which to expand and evaluate `code`.
+ * @param scope Lexical bindings used when expanding and evaluating `code`.
+ * @param $args Binding for the special variable `$args`, the arguments passed
+ *   to the innermost closure.
+ * @param dynamics Dynamic variable bindings used when expanding and evaluating
+ *   `code`.
+ * @param code The Jaspr code to expand and evaluate.
+ */
 export function expandAndEval(
   env: Env,
   scope: Scope,
@@ -771,6 +1066,15 @@ export function expandAndEval(
     () => ({action: 'eval', code}))
 }
 
+/**
+ * Tests whether all of the keys in `defs` are valid context-prefixed names.
+ * Returns `null` if all of the names are valid, or a {@link JasprError} if any
+ * are invalid.
+ * 
+ * @param defs The object whose keys should be verified.
+ * @param module Optional namespace information to include in the returned
+ *   error object.
+ */
 export function validateNames(
   defs: JasprObject,
   module?: Namespace
@@ -778,7 +1082,7 @@ export function validateNames(
   for (let name in defs) {
     let names = name.split('.')
     if (names.length === 2) {
-      if (topLevelPrefixes.has(names[0])) {
+      if (topLevelContexts.has(names[0])) {
         if (!module && (names[0] === 'doc' || names[0] === 'test')) return {
           err: 'BadName', why: 'prefix only allowed at module toplevel',
           prefix: names[0], name,
@@ -792,7 +1096,7 @@ export function validateNames(
       } else return <any>Object.assign({
         err: 'BadName', why: 'not a legal top-level prefix',
         prefix: names[0], name,
-        help: `Legal top-level prefixes are: ${_.join([...topLevelPrefixes])}`
+        help: `Legal top-level prefixes are: ${_.join([...topLevelContexts])}`
       }, module ? {module: module.$module, version: module.$version} : {})
     }
     if (names.length === 0 || !_.every(names, isLegalName)) {
@@ -809,9 +1113,35 @@ export function validateNames(
   return null
 }
 
+/**
+ * Macroexpands and evaluates all of the values of the _definitions object_
+ * `defs`, then returns a scope created by extending `baseScope` with the
+ * resulting definitions. This extended scope is also the scope in which every
+ * value in `defs` is evaluated; this makes recursion possible.
+ * 
+ * A definitions object is an object whose keys are context-prefixed names
+ * (names which may begin with a context name followed by `.`). Unprefixed names
+ * have the default context `value`.
+ * 
+ * If `namespace` is provided, the new scope will include fully-qualified names
+ * for the new definitions.
+ * 
+ * @param env The environment in which to evaluate the definitions.
+ * @param baseScope The scope (lexical bindings) to extend with the new
+ *   definitions. This scope's bindings will be available when evaluating the
+ *   values of `defs`, and will be included in the returned scope.
+ * @param $args Binding for the special variable `$args`, the arguments passed
+ *   to the innermost closure.
+ * @param dynamics Dynamic variable bindings used when expanding and evaluating
+ *   the values of `defs`.
+ * @param defs The definitions object to evaluate.
+ * @param namespace Optional namespace for the new definitions. If present,
+ *   fully-qualified versions of each name in `defs` will be included in the
+ *   returned scope.
+ */
 export function evalDefs(
   env: Env,
-  evalScope: Scope,
+  baseScope: Scope,
   $args: JasprArray,
   dynamics: DynamicMap | undefined,
   defs: JasprObject,
@@ -837,9 +1167,9 @@ export function evalDefs(
       names.push([name, ctx, qualified])
     }
   }
-  const scope = _.create(evalScope, _.mapValues(byContext,
+  const scope = _.create(baseScope, _.mapValues(byContext,
     (obj, ctx) => Object.assign(
-      Object.create(<JasprObject>evalScope[ctx] || null), obj)))
+      Object.create(<JasprObject>baseScope[ctx] || null), obj)))
   if (namespace) {
     scope.qualified = _.create(scope.qualified,
       _(defs).keys().filter(k => !/^test[.][^.]+$/.test(k)).flatMap(name => {

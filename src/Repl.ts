@@ -79,6 +79,34 @@ function makeReadline(): ReadLine.ReadLine {
   return rl
 }
 
+/**
+ * Displays a REPL prompt, waits for user input, parses user input, then passes
+ * the parsed input to `cb`¹. The prompt is displayed again if parsing fails.
+ * 
+ * If a REPL prompt is already displayed, and `options.priority` is greater²
+ * than the current REPL prompt's priority, this prompt will be added to a
+ * queue, and will not display until all other pending prompts have been
+ * displayed.
+ * 
+ * ---
+ * 
+ * __¹__ Yes, I'm aware that this isn't exactly a REPL because it contains
+ * neither the *evaluate* nor the *loop* parts of that acronym… `index.ts`
+ * contains the rest of the REPL logic, since this prompt is used for error
+ * recovery as well as a REPL.
+ * 
+ * __²__ Priority is reversed, it goes from high to low… don't ask, it was
+ * easier to implement this way. 😬
+ * 
+ * @param options Options for the REPL prompt:
+ *   - `prompt`: Required. The text to display for the prompt.
+ *   - `priority`: Required. Lower numbers can replace existing prompts with
+ *     higher numbers.
+ *   - `message`: Optional. A message to display before the first prompt.
+ *   - `onBlank`: Optional. Callback that is called if the user presses ENTER
+ *     without typing anything.
+ * @param cb Callback that is called with the Jaspr value parsed from user input
+ */
 export default function repl(
   options: {
     prompt: string,

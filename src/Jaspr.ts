@@ -27,17 +27,25 @@ export interface JasprObject { [key: string]: Jaspr | Deferred }
 /** Magic Jaspr values contain extra data stored in a hidden Symbol property. */
 export const magicSymbol = Symbol("magic")
 
+/** Well-known error types */
 export type Err =
   'NoBinding' | 'NoKey' | 'NoMatch' | 'BadName' | 'BadArgs' | 'BadModule' |
   'BadPattern' | 'NotCallable' | 'NoPrimitive' | 'NotJSON' | 'ParseFailed' |
   'EvalFailed' | 'ReadFailed' | 'WriteFailed' | 'NativeError' |
   'NotImplemented' | 'AssertFailed'
 
+/** An error signal object */
 export interface JasprError extends JasprObject {
-  err: Err, why: string
+  /** The error type */
+  err: Err
+  /** The error message */
+  why: string
 }
 
+/** A basic Jaspr callback, with no error argument */
 export type Callback = (x: Jaspr) => void
+
+/** A Node-style callback with an error argument */
 export type ErrCallback<T> = (err: JasprError | null, x: T | null) => void
 
 /** 
@@ -86,41 +94,43 @@ export abstract class Deferred {
   }
 }
 
+/** Tests whether a Jaspr value is an array */
 export const isArray: (it: Jaspr) => it is JasprArray = Array.isArray
+
+/** Tests whether a Jaspr value is an object */
 export function isObject(it: Jaspr): it is JasprObject {
   return typeof it === 'object' && it != null && !isArray(it) &&
          !(it instanceof Deferred)
 }
+
+/** Tests whether a Jaspr value is a magic object */
 export function isMagic(it: Jaspr) {
   return isObject(it) && magicSymbol in it
 }
-export function toBool(a: Jaspr): boolean {
-  if (typeof a === 'boolean') return a
-  else if (typeof a === 'number') return a !== 0
-  else if (typeof a === 'string') return a !== ""
-  else if (isArray(a)) return a.length > 0
-  else if (isObject(a)) return Object.keys(a).length > 0
-  else return !!a
+
+/**
+ * Returns the boolean value (_truthiness_) of a Jaspr value. `null`, `false`,
+ * `0`, `NaN`. `""`, `[]`, and `{}` are _falsy_; all other values are _truthy_.
+ */
+export function toBool(it: Jaspr): boolean {
+  if (typeof it === 'boolean') return it
+  else if (typeof it === 'number') return it !== 0 && !isNaN(it)
+  else if (typeof it === 'string') return it !== ""
+  else if (isArray(it)) return it.length > 0
+  else if (isObject(it)) return Object.keys(it).length > 0
+  else return !!it
 }
 
-export function getIndex(index: number, array: JasprArray, cb: ErrCallback<Jaspr>): void {
-  const it = array[index]
-  if (it === undefined) {
-    cb({err: 'NoKey', why: 'array index out of bounds', key: index, in: array,}, null)
-  } else if (it instanceof Deferred) {
-    it.await(v => {array[index] = v; cb(null, v)})
-  } else cb(null, it)
-}
-
-export function getKey(key: string, object: JasprObject, cb: ErrCallback<Jaspr>): void {
-  const it = object[key]
-  if (it === undefined || _.isFunction(it)) {
-    cb({err: 'NoKey', why: 'key not found in object', key, in: object}, null)
-  } else if (it instanceof Deferred) {
-    it.await(v => {object[key] = v; cb(null, v)})
-  } else cb(null, it)
-}
-
+/**
+ * Deeply searches `root` for {@link Deferred} values and waits for all of them
+ * to resolve, then passes the fully-resolved `root` to the callback `cb`.
+ * 
+ * @param root The value to resolve.
+ * @param cb Callback that will be called when `root` has fully resolved. If
+ *   `jsonOnly` is `true`, `cb` may be called with an error instead.
+ * @param jsonOnly If true, `cb` will be called with an error if `root` contains
+ *   any magic objects that are not valid JSON.
+ */
 export function resolveFully(root: Jaspr, cb: ErrCallback<Jaspr>, jsonOnly = false): void {
   let pending = 1, stack: Jaspr[] = [], history = new Set<JasprObject>()
   function loop(toPush: Jaspr) {
@@ -165,6 +175,16 @@ export function resolveFully(root: Jaspr, cb: ErrCallback<Jaspr>, jsonOnly = fal
   loop(root)
 }
 
+/**
+ * Tests whether `key` is a Jaspr-accessible key in `obj` (that is, an
+ * enumerable key in `obj` or any of its prototypes).
+ * 
+ * This is needed because Jaspr uses prototypes to merge objects in some cases,
+ * such as extending scopes with new definitions.
+ * 
+ * @param obj The object that may contain `key`.
+ * @param key The key to test for.
+ */
 export function has(obj: {}, key: string): boolean {
   for (let proto = obj; proto != null; proto = Object.getPrototypeOf(proto)) {
     if (Object.prototype.propertyIsEnumerable.call(proto, key)) return true
@@ -191,6 +211,20 @@ function quoteString(str: string): string {
   return out + '”'
 }
 
+/**
+ * Returns a string representation of `it`.
+ * 
+ * The returned string will be *mostly* valid Jaspr, except for unparseable
+ * string representations of magic objects or unresolved {@link Deferred}
+ * values.
+ * 
+ * @param it The Jaspr value to return the string representation of.
+ * @param bareString If true, if `it` is a string then the returned string will
+ *   just be `it`, unchanged. Useful for print functions.
+ * @param alwaysQuote If true, strings in the returned string will always be
+ *   quoted. By default, `toString` only quotes strings if it is syntactically
+ *   necessary.
+ */
 export function toString(it: Jaspr, bareString = false, alwaysQuote = false): string {
   if (isMagic(it)) {
     return '(magic)'

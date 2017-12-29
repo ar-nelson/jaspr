@@ -1,11 +1,11 @@
-/*
-  This file defines the built-in `jaspr.primitive` module.
-
-  `jaspr.primitive` is a module that comes bundled with every Jaspr
-  implementation. Unlike the standard library (`jaspr`), `jaspr.primitive` is
-  defined in the Jaspr implementation's host language, and the functions it
-  exports may exhibit undefined behavior if given arguments of the wrong type.
-*/
+/**
+ * This file defines the built-in `jaspr.primitive` module.
+ *
+ * `jaspr.primitive` is a module that comes bundled with every Jaspr
+ * implementation. Unlike the standard library (`jaspr`), `jaspr.primitive` is
+ * defined in the Jaspr implementation's host language, and the functions it
+ * exports may exhibit undefined behavior if given arguments of the wrong type.
+ */
 
 import {
   Jaspr, JasprObject, Deferred, Callback, magicSymbol, toBool, isArray,

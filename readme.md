@@ -59,15 +59,15 @@ I didn't design Jaspr to solve any particular problem, so I'm not sure if it wil
 How?
 ----
 
-This project is a reference implementation of a Jaspr interpreter in Node.js and TypeScript. After cloning the repo and installing dependencies with `npm install`, you can run the test suite with
+This project is a reference implementation of a Jaspr interpreter in Node.js and TypeScript. After cloning the repo and installing dependencies with `npm install`, you can run the test suite with:
 
     npm test
 
-, or start a REPL with
+And start a REPL with:
 
     npm run repl
 
-. There is currently no way to run Jaspr code from a file.
+The command-line interface is `index.js`, which, after compilation (triggered by `npm test`), should be located at `dist/src/index.js`. Run it with `--help` to get a usage message. It can run standalone Jaspr scripts, display the REPL, and convert Jaspr source into JSON.
 
 Q&A
 ---
@@ -112,11 +112,9 @@ Functions are actually still plain JSON, and it's possible to create functions t
 
 **Q: Isn't concurrent-by-default evaluation terrible for performance?**
 
-A: Not necessarily. While “every expression is evaluated in its own fiber” is a good mental model for Jaspr's semantics, in practice most Jaspr code can still be evaluated synchronously. This reference implementation does just that: the interpreter's `eval` function is a [generator][generator] that yields whenever it encounters an unresolved lazy value, allowing its caller to move on to the next evaluatable subexpression.
+A: Not necessarily. While “every expression is evaluated in its own fiber” is a good mental model for Jaspr's semantics, in practice most Jaspr code can still be evaluated synchronously. This reference implementation does just that: the interpreter's `eval` function runs code in a straight-line, synchronous fashion until it encounters something that *must* be done asynchronously, at which point it returns an unresolved lazy value and allows its caller to move on to the next evaluatable subexpression.
 
 The interpreter is still *really* slow, though. That's an unavoidable consequence of writing an interpreter in JavaScript. I'm planning on fixing performance in two ways: by adding a JIT that generates JS source code, and by writing a JS transpiler for production use.
-
-[generator]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Iterators_and_Generators
 
 **Q: Where does the name come from?**
 

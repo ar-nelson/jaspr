@@ -2,7 +2,7 @@ import {
   Jaspr, JasprError, Deferred, Callback, toString, isArray, magicSymbol
 } from './Jaspr'
 import {
-  Env, DeferProperties, JasprDynamic, makeDynamic, waitFor
+  Env, FiberDescriptor, JasprDynamic, makeDynamic, waitFor
 } from './Interpreter'
 import prettyPrint from './PrettyPrint'
 import * as Names from './ReservedNames'
@@ -65,14 +65,14 @@ export class Branch implements Env {
   }
 
   defer(
-    props: () => DeferProperties = () => ({action: 'external'})
+    props: () => FiberDescriptor = () => ({action: 'external'})
   ): Fiber {
     return new Fiber(this, props)
   }
 
   junction(
     fns: ((env: Env, cb: Callback) => void)[],
-    props: () => DeferProperties = () => ({action: 'junction'})
+    props: () => FiberDescriptor = () => ({action: 'junction'})
   ): Fiber {
     const junction = new Fiber(this, props)
     const branches = new Array<Branch>(fns.length)
@@ -106,11 +106,11 @@ export class Branch implements Env {
 
 export class Fiber extends Deferred {
   readonly branch: Branch
-  readonly props: () => DeferProperties
+  readonly props: () => FiberDescriptor
 
   constructor(
     branch: Branch,
-    props: () => DeferProperties = () => ({action: 'external'})
+    props: () => FiberDescriptor = () => ({action: 'external'})
   ) {
     super()
     this.branch = branch
